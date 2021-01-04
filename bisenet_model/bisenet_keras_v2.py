@@ -8,8 +8,6 @@
 """
 BiseNet V2 Model
 """
-from semantic_segmentation_zoo import cnn_basenet
-  
 import tensorflow as tf
 from tensorflow import keras
 from keras.applications.xception import Xception,preprocess_input
@@ -135,7 +133,7 @@ class _StemBlock(keras.layers.Layer):
 
 class _ContextEmbedding(keras.layers.Layer):
     """
-    implementation of context embedding module in bisenetv2
+    implementation of context embedding module in BiseNetKerasV2
     """
     def __init__(self, phase):
         """
@@ -183,7 +181,7 @@ class _ContextEmbedding(keras.layers.Layer):
 
 class _GatherExpansion(keras.layers.Layer):
     """
-    implementation of gather and expansion module in bisenetv2
+    implementation of gather and expansion module in BiseNetKerasV2
     """
     def __init__(self, phase):
         """
@@ -290,7 +288,7 @@ class _GatherExpansion(keras.layers.Layer):
 
 class _GuidedAggregation(keras.layers.Layer):
     """
-    implementation of guided aggregation module in bisenetv2
+    implementation of guided aggregation module in BiseNetKerasV2
     """
 
     def __init__(self, phase):
@@ -475,7 +473,7 @@ class _SegmentationHead(keras.layers.Layer):
         return result
 
 
-class BiseNetV2(Model):
+class BiseNetKerasV2(Model):
     """
     implementation of bisenet v2
     """
@@ -483,7 +481,7 @@ class BiseNetV2(Model):
         """
 
         """
-        super(BiseNetV2, self).__init__()
+        super(BiseNetKerasV2, self).__init__()
         self._cfg = cfg
         self._phase = phase
         self._is_training = self._is_net_for_training()
@@ -496,11 +494,11 @@ class BiseNetV2(Model):
         if self._enable_ohem:
             self._ohem_score_thresh = self._cfg.SOLVER.OHEM.SCORE_THRESH
             self._ohem_min_sample_nums = self._cfg.SOLVER.OHEM.MIN_SAMPLE_NUMS
-        self._ge_expand_ratio = self._cfg.MODEL.BISENETV2.GE_EXPAND_RATIO
-        self._semantic_channel_ratio = self._cfg.MODEL.BISENETV2.SEMANTIC_CHANNEL_LAMBDA
-        self._seg_head_ratio = self._cfg.MODEL.BISENETV2.SEGHEAD_CHANNEL_EXPAND_RATIO
+        self._ge_expand_ratio = self._cfg.MODEL.BiseNetKerasV2.GE_EXPAND_RATIO
+        self._semantic_channel_ratio = self._cfg.MODEL.BiseNetKerasV2.SEMANTIC_CHANNEL_LAMBDA
+        self._seg_head_ratio = self._cfg.MODEL.BiseNetKerasV2.SEGHEAD_CHANNEL_EXPAND_RATIO
 
-        # set module used in bisenetv2
+        # set module used in BiseNetKerasV2
         self._conv_block = ConvBlk()
         self._se_block = _StemBlock(phase=phase)
         self._context_embedding_block = _ContextEmbedding(phase=phase)
@@ -811,8 +809,8 @@ if __name__ == '__main__':
     test code
     """
     test_in_tensor = tf.placeholder(dtype=tf.float32, shape=[1, 256, 512, 3], name='input')
-    model = BiseNetV2(phase='train', cfg=parse_config_utils.lanenet_cfg)
-    ret = model.build_model(test_in_tensor, name='bisenetv2')
+    model = BiseNetKerasV2(phase='train', cfg=parse_config_utils.lanenet_cfg)
+    ret = model.build_model(test_in_tensor, name='BiseNetKerasV2')
     for layer_name, layer_info in ret.items():
         print('layer name: {:s} shape: {}'.format(layer_name, layer_info['shape']))
 

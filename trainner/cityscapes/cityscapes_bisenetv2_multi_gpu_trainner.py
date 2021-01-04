@@ -19,7 +19,7 @@ import tensorflow as tf
 import loguru
 import tqdm
 
-from bisenet_model import bisenet_v2
+from bisenet_model import import bisenet_keras_v2
 from local_utils.config_utils import parse_config_utils
 from data_provider.cityscapes import cityscapes_tf_io
 
@@ -95,8 +95,8 @@ class BiseNetV2CityScapesMultiTrainer(object):
             )
 
         # define model
-        self._model = bisenet_v2.BiseNetV2(phase='train', cfg=CFG)
-        self._val_model = bisenet_v2.BiseNetV2(phase='test', cfg=CFG)
+        self._model = bisenet_keras_v2.BiseNetKerasV2(phase='train', cfg=CFG)
+        self._val_model = bisenet_keras_v2.BiseNetKerasV2(phase='test', cfg=CFG)
 
         # define average container
         tower_grads = []
