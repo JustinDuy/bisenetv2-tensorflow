@@ -207,7 +207,9 @@ class _CityScapesTfReader(object):
         assert ops.exists(tfrecords_file_paths), '{:s} not exist'.format(tfrecords_file_paths)
 
         sample_counts = 0
-        sample_counts += sum(1 for _ in tf.io.tf_record_iterator(tfrecords_file_paths))
+        #sample_counts += sum(1 for _ in tf.io.tf_record_iterator(tfrecords_file_paths))
+        raw_dataset = tf.data.TFRecordDataset(tfrecords_file_paths)
+        sample_counts += sum(1 for _ in raw_dataset)
         if self._dataset_flags == 'train':
             num_batchs = int(np.ceil(sample_counts / self._train_batch_size))
         elif self._dataset_flags == 'val':
