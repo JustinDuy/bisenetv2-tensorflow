@@ -24,20 +24,20 @@ def decode(serialized_example):
     :param serialized_example:
     :return:
     """
-    features = tf.parse_single_example(
+    features = tf.io.parse_single_example(
         serialized_example,
         # Defaults are not specified since both keys are required.
         features={
-            'gt_src_image_raw': tf.FixedLenFeature([], tf.string),
-            'gt_label_image_raw': tf.FixedLenFeature([], tf.string),
+            'gt_src_image_raw': tf.io.FixedLenFeature([], tf.string),
+            'gt_label_image_raw': tf.io.FixedLenFeature([], tf.string),
         })
 
     # decode gt image
-    gt_image = tf.image.decode_png(features['gt_src_image_raw'], channels=3)
+    gt_image = tf.io.decode_png(features['gt_src_image_raw'], channels=3)
     gt_image = tf.reshape(gt_image, shape=[CFG.AUG.TRAIN_CROP_SIZE[1], CFG.AUG.TRAIN_CROP_SIZE[0], 3])
 
     # decode gt binary image
-    gt_binary_image = tf.image.decode_png(features['gt_label_image_raw'], channels=1)
+    gt_binary_image = tf.io.decode_png(features['gt_label_image_raw'], channels=1)
     gt_binary_image = tf.reshape(gt_binary_image, shape=[CFG.AUG.TRAIN_CROP_SIZE[1], CFG.AUG.TRAIN_CROP_SIZE[0], 1])
 
     return gt_image, gt_binary_image
@@ -64,9 +64,9 @@ def resize(img, grt=None, mode='train', align_corners=True):
     grt = tf.expand_dims(grt, axis=0)
     if CFG.AUG.RESIZE_METHOD == 'unpadding':
         target_size = (CFG.AUG.FIX_RESIZE_SIZE[0], CFG.AUG.FIX_RESIZE_SIZE[1])
-        img = tf.image.resize_bilinear(images=img, size=target_size, align_corners=align_corners)
+        img = tf.image.resize(images=img, method='bilinear', size=target_size) # align_corners=align_corners
         if grt is not None:
-            grt = tf.image.resize_nearest_neighbor(images=grt, size=target_size, align_corners=align_corners)
+            grt = tf.image.resize(images=grt, method='nearest', size=target_size)# align_corners=align_corners
     elif CFG.AUG.RESIZE_METHOD == 'stepscaling':
         if mode == 'train':
             min_scale_factor = CFG.AUG.MIN_SCALE_FACTOR
@@ -210,14 +210,14 @@ def get_random_scale(min_scale_factor, max_scale_factor, step_size):
 
         # When step_size = 0, we sample the value uniformly from [min, max).
     if step_size == 0:
-        return tf.random_uniform([1],
+        return tf.random.uniform([1],
                                  minval=min_scale_factor,
                                  maxval=max_scale_factor)
 
         # When step_size != 0, we randomly select one discrete value from [min, max].
     num_steps = int((max_scale_factor - min_scale_factor) / step_size + 1)
-    scale_factors = tf.lin_space(min_scale_factor, max_scale_factor, num_steps)
-    shuffled_scale_factors = tf.random_shuffle(scale_factors)
+    scale_factors = tf.linspace(min_scale_factor, max_scale_factor, num_steps)
+    shuffled_scale_factors = tf.random.shuffle(scale_factors)
     return shuffled_scale_factors[0]
 
 
@@ -239,9 +239,9 @@ def randomly_scale_image_and_label(image, label=None, scale=1.0, align_corners=T
         tf.cast([image_shape[1], image_shape[2]], tf.float32) * scale,
         tf.int32)
 
-    image = tf.image.resize_bilinear(image, new_dim, align_corners=True)
+    image = tf.image.resize(image, new_dim, method='bilinear')#align_corners=True
     if label is not None:
-        label = tf.image.resize_nearest_neighbor(label, new_dim, align_corners=True)
+        label = tf.image.resize(label, new_dim, method='nearest')#align_corners=True
     return image, label
 
 
