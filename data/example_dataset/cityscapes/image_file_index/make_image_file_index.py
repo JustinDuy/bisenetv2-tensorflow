@@ -5,10 +5,10 @@ import random
 
 import tqdm
 
-SOURCE_IMAGE_DIR = './data/example_dataset/cityscapes/gt_images/leftImg8bit'
-SOURCE_LABEL_DIR = './data/example_dataset/cityscapes/gt_annotation/gtFine'
+SOURCE_IMAGE_DIR = '/content/gdrive/MyDrive/leftImg8bit/'
+SOURCE_LABEL_DIR = '/content/gdrive/MyDrive/gtFine/'
 
-DST_IMAGE_INDEX_FILE_OUTPUT_DIR = './data/example_dataset/cityscapes/image_file_index'
+DST_IMAGE_INDEX_FILE_OUTPUT_DIR = '/content/gdrive/MyDrive/cityscapes/image_file_index'
 
 unique_ids = []
 for dir_name in os.listdir(SOURCE_IMAGE_DIR):
@@ -23,7 +23,7 @@ for dir_name in os.listdir(SOURCE_IMAGE_DIR):
         image_id = image_name.split('.')[0]
         image_id_prefix = '_'.join(image_id.split('_')[:3])
 
-        label_image_name = '{:s}_gtFine_labelTrainIds.png'.format(image_id_prefix)
+        label_image_name = '{:s}_gtFine_labelIds.png'.format(image_id_prefix)
         label_image_dir = ops.join(SOURCE_LABEL_DIR, dir_name, city_name)
         label_image_path = ops.join(label_image_dir, label_image_name)
         assert ops.exists(label_image_path), '{:s} not exist'.format(label_image_path)
