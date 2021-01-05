@@ -17,7 +17,6 @@ from keras.layers import Conv2D, DepthwiseConv2D, Input, Dense, Dropout, Multipl
 from keras.layers import BatchNormalization, Activation, AveragePooling2D, UpSampling2D
 from keras.layers.experimental.preprocessing import Resizing
 from keras.layers.core import Lambda
-from keras.backend import tf as ktf
 from keras.preprocessing.image import ImageDataGenerator
 
 import matplotlib.pyplot as plt
