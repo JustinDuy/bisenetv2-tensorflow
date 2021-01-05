@@ -47,7 +47,7 @@ TEST:
     TEST_MODEL: 'model/cityscapes/final'
 TRAIN:
     MODEL_SAVE_DIR: '/content/gdrive/MyDrive/cityscapes/model/'
-    TBOARD_SAVE_DIR: '/content/gdrive/MyDrive/tboard/'
+    TBOARD_SAVE_DIR: '/content/gdrive/MyDrive/cityscapes/tboard/'
     MODEL_PARAMS_CONFIG_FILE_NAME: "model_train_config.json"
     RESTORE_FROM_SNAPSHOT:
         ENABLE: False
