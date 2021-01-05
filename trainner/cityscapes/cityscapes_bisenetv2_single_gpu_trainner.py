@@ -13,7 +13,7 @@ import os.path as ops
 import shutil
 import time
 import math
-
+from tensorflow import keras
 import numpy as np
 import tensorflow as tf
 import loguru
@@ -77,10 +77,9 @@ class BiseNetV2CityScapesTrainer(object):
         self._sess = tf.Session(config=sess_config)
 
         # define graph input tensor
-        with tf.variable_scope(name_or_scope='graph_input_node'):
-            self._input_src_image, self._input_label_image = self._train_dataset.next_batch(
-                batch_size=self._batch_size
-            )
+        self._input_src_image, self._input_label_image = self._train_dataset.next_batch(
+            batch_size=self._batch_size
+        )
 
         # define model loss
         self._model = bisenet_keras_v2.BiseNetKerasV2(phase='train', cfg=CFG)
@@ -100,106 +99,100 @@ class BiseNetV2CityScapesTrainer(object):
 
         # define miou
         if self._enable_miou:
-            with tf.variable_scope('miou'):
-                pred = tf.reshape(self._prediciton, [-1, ])
-                gt = tf.reshape(self._input_label_image, [-1, ])
-                indices = tf.squeeze(tf.where(tf.less_equal(gt, CFG.DATASET.NUM_CLASSES - 1)), 1)
-                gt = tf.gather(gt, indices)
-                pred = tf.gather(pred, indices)
-                self._miou, self._miou_update_op = tf.metrics.mean_iou(
-                    labels=gt,
-                    predictions=pred,
-                    num_classes=CFG.DATASET.NUM_CLASSES
-                )
+            pred = tf.reshape(self._prediciton, [-1, ])
+            gt = tf.reshape(self._input_label_image, [-1, ])
+            indices = tf.squeeze(tf.where(tf.less_equal(gt, CFG.DATASET.NUM_CLASSES - 1)), 1)
+            gt = tf.gather(gt, indices)
+            pred = tf.gather(pred, indices)
+            self._miou, self._miou_update_op = tf.metrics.mean_iou(
+                labels=gt,
+                predictions=pred,
+                num_classes=CFG.DATASET.NUM_CLASSES
+            )
 
         # define learning rate
-        with tf.variable_scope('learning_rate'):
-            self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
-            warmup_steps = tf.constant(
-                self._warmup_epoches * self._steps_per_epoch, dtype=tf.float32, name='warmup_steps'
-            )
-            train_steps = tf.constant(
-                self._train_epoch_nums * self._steps_per_epoch, dtype=tf.float32, name='train_steps'
-            )
-            self._learn_rate = tf.cond(
-                pred=self._global_step < warmup_steps,
-                true_fn=lambda: self._compute_warmup_lr(warmup_steps=warmup_steps, name='warmup_lr'),
-                false_fn=lambda: tf.train.polynomial_decay(
-                    learning_rate=self._init_learning_rate,
-                    global_step=self._global_step,
-                    decay_steps=train_steps,
-                    end_learning_rate=0.000001,
-                    power=self._lr_polynimal_decay_power)
-            )
-            self._learn_rate = tf.identity(self._learn_rate, 'lr')
-            global_step_update = tf.assign_add(self._global_step, 1.0)
+        self._global_step = tf.Variable(1.0, dtype=tf.float32, trainable=False, name='global_step')
+        warmup_steps = tf.constant(
+            self._warmup_epoches * self._steps_per_epoch, dtype=tf.float32, name='warmup_steps'
+        )
+        train_steps = tf.constant(
+            self._train_epoch_nums * self._steps_per_epoch, dtype=tf.float32, name='train_steps'
+        )
+        self._learn_rate = tf.cond(
+            pred=self._global_step < warmup_steps,
+            true_fn=lambda: self._compute_warmup_lr(warmup_steps=warmup_steps, name='warmup_lr'),
+            false_fn=lambda: tf.train.polynomial_decay(
+                learning_rate=self._init_learning_rate,
+                global_step=self._global_step,
+                decay_steps=train_steps,
+                end_learning_rate=0.000001,
+                power=self._lr_polynimal_decay_power)
+        )
+        self._learn_rate = tf.identity(self._learn_rate, 'lr')
+        global_step_update = tf.assign_add(self._global_step, 1.0)
 
         # define moving average op
-        with tf.variable_scope(name_or_scope='moving_avg'):
-            if CFG.TRAIN.FREEZE_BN.ENABLE:
-                train_var_list = [
-                    v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
-                ]
-            else:
-                train_var_list = tf.trainable_variables()
-            moving_ave_op = tf.train.ExponentialMovingAverage(
-                self._moving_ave_decay).apply(train_var_list + tf.moving_average_variables())
+        if CFG.TRAIN.FREEZE_BN.ENABLE:
+            train_var_list = [
+                v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+            ]
+        else:
+            train_var_list = tf.trainable_variables()
+        moving_ave_op = tf.train.ExponentialMovingAverage(
+            self._moving_ave_decay).apply(train_var_list + tf.moving_average_variables())
 
         # define training op
-        with tf.variable_scope(name_or_scope='train_step'):
-            if CFG.TRAIN.FREEZE_BN.ENABLE:
-                train_var_list = [
-                    v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
-                ]
-            else:
-                train_var_list = tf.trainable_variables()
-            if self._optimizer_mode == 'sgd':
-                optimizer = tf.train.MomentumOptimizer(
-                    learning_rate=self._learn_rate,
-                    momentum=self._momentum
-                )
-            elif self._optimizer_mode == 'adam':
-                optimizer = tf.train.AdamOptimizer(
-                    learning_rate=self._learn_rate,
-                )
-            else:
-                raise ValueError('Not support optimizer: {:s}'.format(self._optimizer_mode))
-            optimize_op = optimizer.minimize(self._loss, var_list=train_var_list)
-            with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-                with tf.control_dependencies([optimize_op, global_step_update]):
-                    with tf.control_dependencies([moving_ave_op]):
-                        self._train_op = tf.no_op()
+        if CFG.TRAIN.FREEZE_BN.ENABLE:
+            train_var_list = [
+                v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+            ]
+        else:
+            train_var_list = tf.trainable_variables()
+        if self._optimizer_mode == 'sgd':
+            optimizer = keras.optimizers.SGD(
+                learning_rate=self._learn_rate,
+                momentum=self._momentum
+            )
+        elif self._optimizer_mode == 'adam':
+            optimizer = keras.optimizers.Adam(
+                learning_rate=self._learn_rate,
+            )
+        else:
+            raise ValueError('Not support optimizer: {:s}'.format(self._optimizer_mode))
+        optimize_op = optimizer.minimize(self._loss, var_list=train_var_list)
+        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+            with tf.control_dependencies([optimize_op, global_step_update]):
+                with tf.control_dependencies([moving_ave_op]):
+                    self._train_op = tf.no_op()
 
         # define saver and loader
-        with tf.variable_scope('loader_and_saver'):
-            self._net_var = [vv for vv in tf.global_variables() if 'lr' not in vv.name]
-            self._loader = tf.train.Saver(self._net_var)
-            self._saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
+        self._net_var = [vv for vv in tf.global_variables() if 'lr' not in vv.name]
+        self._loader = tf.train.Saver(self._net_var)
+        self._saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
 
         # define summary
-        with tf.variable_scope('summary'):
-            summary_merge_list = [
-                tf.summary.scalar("learn_rate", self._learn_rate),
-                tf.summary.scalar("total", self._loss),
-                tf.summary.scalar('l2_loss', self._l2_loss)
-            ]
-            if self._enable_miou:
-                with tf.control_dependencies([self._miou_update_op]):
-                    summary_merge_list_with_miou = [
-                        tf.summary.scalar("learn_rate", self._learn_rate),
-                        tf.summary.scalar("total", self._loss),
-                        tf.summary.scalar('l2_loss', self._l2_loss),
-                        tf.summary.scalar('miou', self._miou)
-                    ]
-                    self._write_summary_op_with_miou = tf.summary.merge(summary_merge_list_with_miou)
-            if ops.exists(self._tboard_save_dir):
-                shutil.rmtree(self._tboard_save_dir)
-            os.makedirs(self._tboard_save_dir, exist_ok=True)
-            model_params_file_save_path = ops.join(self._tboard_save_dir, CFG.TRAIN.MODEL_PARAMS_CONFIG_FILE_NAME)
-            with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
-                CFG.dump_to_json_file(f_obj)
-            self._write_summary_op = tf.summary.merge(summary_merge_list)
-            self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+        summary_merge_list = [
+            tf.summary.scalar("learn_rate", self._learn_rate),
+            tf.summary.scalar("total", self._loss),
+            tf.summary.scalar('l2_loss', self._l2_loss)
+        ]
+        if self._enable_miou:
+            with tf.control_dependencies([self._miou_update_op]):
+                summary_merge_list_with_miou = [
+                    tf.summary.scalar("learn_rate", self._learn_rate),
+                    tf.summary.scalar("total", self._loss),
+                    tf.summary.scalar('l2_loss', self._l2_loss),
+                    tf.summary.scalar('miou', self._miou)
+                ]
+                self._write_summary_op_with_miou = tf.summary.merge(summary_merge_list_with_miou)
+        if ops.exists(self._tboard_save_dir):
+            shutil.rmtree(self._tboard_save_dir)
+        os.makedirs(self._tboard_save_dir, exist_ok=True)
+        model_params_file_save_path = ops.join(self._tboard_save_dir, CFG.TRAIN.MODEL_PARAMS_CONFIG_FILE_NAME)
+        with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
+            CFG.dump_to_json_file(f_obj)
+        self._write_summary_op = tf.summary.merge(summary_merge_list)
+        self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
 
         LOG.info('Initialize cityscapes bisenetv2 trainner complete')
 
@@ -210,9 +203,8 @@ class BiseNetV2CityScapesTrainer(object):
         :param name:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name):
-            factor = tf.math.pow(self._init_learning_rate / self._warmup_init_learning_rate, 1.0 / warmup_steps)
-            warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
+        factor = tf.math.pow(self._init_learning_rate / self._warmup_init_learning_rate, 1.0 / warmup_steps)
+        warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
         return warmup_lr
 
     def train(self):
