@@ -290,13 +290,13 @@ class BiseNetV2CityScapesTrainer(object):
             if self._enable_miou and epoch % self._record_miou_epoch == 0:
                 train_epoch_mious = np.mean(train_epoch_mious)
 
-            if epoch % self._snapshot_epoch == 0:
-                if self._enable_miou:
+            #if epoch % self._snapshot_epoch == 0:
+                #if self._enable_miou:
                     #snapshot_model_name = 'cityscapes_train_miou={:.4f}.ckpt'.format(train_epoch_mious)
                     #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
                     #os.makedirs(self._model_save_dir, exist_ok=True)
                     #self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
-                else:
+                #else:
                     #snapshot_model_name = 'cityscapes_train_loss={:.4f}.ckpt'.format(train_epoch_losses)
                     #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
                     #os.makedirs(self._model_save_dir, exist_ok=True)
