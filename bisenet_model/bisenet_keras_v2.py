@@ -356,7 +356,7 @@ class _GuidedAggregation(keras.layers.Layer):
             width=detail_input_tensor_shape[2],
             interpolation="bilinear")
         self._aggregation_feature_conv_blk = ConvBlk()
-        super(_GuidedAggregation, self).build(input_shape)  
+        super(_GuidedAggregation, self).build(input_shapes)  
 
     def call(self, inputs):
         """
@@ -365,12 +365,11 @@ class _GuidedAggregation(keras.layers.Layer):
         :param inputs:
         :return:
         """
-        assert isinstance(inputs, list), "Expect list of tensors"
+        assert isinstance(inputs, list), "Expect list of input tensors"
 
         detail_input_tensor = inputs[0]
         semantic_input_tensor = inputs[1]
         output_channels = detail_input_tensor.get_shape().as_list()[-1]
-
         # detail branch
         detail_branch_remain = self._detail_branch_3x3_dw_conv_block(detail_input_tensor)
         detail_branch_remain = self._detail_branch_bn_1(detail_branch_remain)
@@ -406,7 +405,7 @@ class _GuidedAggregation(keras.layers.Layer):
         fused_features = Add()([guided_detail_features, guided_upsample_features])
         aggregation_feature_output = self._aggregation_feature_conv_blk(
             fused_features,
-            output_channels=detail_input_tensor_shape, 
+            output_channels=output_channels, 
             k_size=(3,3), 
             stride=1, 
             padding=self._padding, 
@@ -444,16 +443,16 @@ class _SegmentationHead(keras.layers.Layer):
         :param inputs:
         :return:
         """
-        upsample_ratio = kwargs['upsample_ratio']
-        feature_dims = kwargs['feature_dims']
-        classes_nums = kwargs['classes_nums']
+        self._upsample_ratio = kwargs['upsample_ratio']
+        self._feature_dims = kwargs['feature_dims']
+        self._classes_nums = kwargs['classes_nums']
         if 'padding' in kwargs:
             self._padding = kwargs['padding']
 
         input_tensor_size = input.get_shape().as_list()[1:3]
-        output_tensor_size = [int(tmp * ratio) for tmp in input_tensor_size]
+        output_tensor_size = [int(tmp * self._upsample_ratio) for tmp in input_tensor_size]
         result = ConvBlk()(
-            input_tensor,
+            input,
             output_channels=self._feature_dims, 
             k_size=(3,3), 
             stride=1, 
@@ -564,6 +563,105 @@ class BiseNetKerasV2(Model):
         ]
         return collections.OrderedDict(params)
 
+    @classmethod
+    def _compute_cross_entropy_loss(cls, seg_logits, labels, class_nums, name):
+        """
+
+        :param seg_logits:
+        :param labels:
+        :param class_nums:
+        :param name:
+        :return:
+        """
+        with tf.variable_scope(name_or_scope=name):
+            # first check if the logits' shape is matched with the labels'
+            seg_logits_shape = seg_logits.shape[1:3]
+            labels_shape = labels.shape[1:3]
+            seg_logits = tf.cond(
+                tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
+                true_fn=lambda: seg_logits,
+                false_fn=lambda: tf.image.resize_bilinear(seg_logits, labels_shape)
+            )
+            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+            labels = tf.reshape(labels, [-1, ])
+            indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
+            seg_logits = tf.gather(seg_logits, indices)
+            labels = tf.cast(tf.gather(labels, indices), tf.int32)
+
+            # compute cross entropy loss
+            loss = tf.reduce_mean(
+                tf.nn.sparse_softmax_cross_entropy_with_logits(
+                    labels=labels,
+                    logits=seg_logits
+                ),
+                name='cross_entropy_loss'
+            )
+        return loss
+
+    @classmethod
+    def _compute_ohem_cross_entropy_loss(cls, seg_logits, labels, class_nums, name, thresh, n_min):
+        """
+
+        :param seg_logits:
+        :param labels:
+        :param class_nums:
+        :param name:
+        :return:
+        """
+        with tf.variable_scope(name_or_scope=name):
+            # first check if the logits' shape is matched with the labels'
+            seg_logits_shape = seg_logits.shape[1:3]
+            labels_shape = labels.shape[1:3]
+            seg_logits = tf.cond(
+                tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
+                true_fn=lambda: seg_logits,
+                false_fn=lambda: tf.image.resize_bilinear(seg_logits, labels_shape)
+            )
+            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+            labels = tf.reshape(labels, [-1, ])
+            indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
+            seg_logits = tf.gather(seg_logits, indices)
+            labels = tf.cast(tf.gather(labels, indices), tf.int32)
+
+            # compute cross entropy loss
+            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=labels,
+                logits=seg_logits
+            )
+            loss, _ = tf.nn.top_k(loss, tf.size(loss), sorted=True)
+
+            # apply ohem
+            ohem_thresh = tf.multiply(-1.0, tf.math.log(thresh), name='ohem_score_thresh')
+            ohem_cond = tf.greater(loss[n_min], ohem_thresh)
+            loss_select = tf.cond(
+                pred=ohem_cond,
+                true_fn=lambda: tf.gather(loss, tf.squeeze(tf.where(tf.greater(loss, ohem_thresh)), 1)),
+                false_fn=lambda: loss[:n_min]
+            )
+            loss_value = tf.reduce_mean(loss_select, name='ohem_cross_entropy_loss')
+        return loss_value
+
+    @classmethod
+    def _compute_l2_reg_loss(cls, var_list, weights_decay, name):
+        """
+
+        :param var_list:
+        :param weights_decay:
+        :param name:
+        :return:
+        """
+        with tf.variable_scope(name_or_scope=name):
+            l2_reg_loss = tf.constant(0.0, tf.float32)
+            for vv in var_list:
+                if 'beta' in vv.name or 'gamma' in vv.name or 'b:0' in vv.name.split('/')[-1]:
+                    continue
+                else:
+                    l2_reg_loss = tf.add(l2_reg_loss, tf.nn.l2_loss(vv))
+            l2_reg_loss *= weights_decay
+            l2_reg_loss = tf.identity(l2_reg_loss, 'l2_loss')
+
+        return l2_reg_loss
+
     def build_detail_branch(self, input_tensor, name):
         """
 
@@ -651,8 +749,8 @@ class BiseNetKerasV2(Model):
                 upsample_ratio = int(source_input_tensor_size[0] / result_tensor_size[0])
                 feature_dims = result_tensor_dims * self._seg_head_ratio
                 seg_head_inputs[stage_name] = self._seg_head_block(
-                    input_tensor=seg_head_input,
-                    name='block_{:d}_seg_head_block'.format(block_index + 1),
+                    seg_head_input,
+                    #name='block_{:d}_seg_head_block'.format(block_index + 1),
                     upsample_ratio=upsample_ratio,
                     feature_dims=feature_dims,
                     classes_nums=self._class_nums
@@ -667,12 +765,7 @@ class BiseNetKerasV2(Model):
         :param name:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name):
-            result = self._guided_aggregation_block(
-                detail_input_tensor=detail_output,
-                semantic_input_tensor=semantic_output,
-                name='guided_aggregation_block'
-            )
+        result = self._guided_aggregation_block([detail_output, semantic_output])
         return result
 
     def build_instance_segmentation_branch(self, input_tensor, name):
@@ -685,30 +778,28 @@ class BiseNetKerasV2(Model):
         input_tensor_size = input_tensor.get_shape().as_list()[1:3]
         output_tensor_size = [int(tmp * 8) for tmp in input_tensor_size]
 
-        with tf.variable_scope(name_or_scope=name):
-            output_tensor = self._conv_block(
-                input_tensor=input_tensor,
-                k_size=3,
-                output_channels=64,
-                stride=1,
-                name='conv_3x3',
-                use_bias=False,
-                need_activate=True
-            )
-            output_tensor = self._conv_block(
-                input_tensor=output_tensor,
-                k_size=1,
-                output_channels=128,
-                stride=1,
-                name='conv_1x1',
-                use_bias=False,
-                need_activate=False
-            )
-            output_tensor = tf.image.resize_bilinear(
-                output_tensor,
-                output_tensor_size,
-                name='instance_logits'
-            )
+        output_tensor = ConvBlk()(
+            input_tensor,
+            k_size=3,
+            output_channels=64,
+            stride=1,
+            #name='conv_3x3',
+            use_bias=False,
+            need_activate=True
+        )
+        output_tensor = ConvBlk()(
+            output_tensor,
+            k_size=1,
+            output_channels=128,
+            stride=1,
+            #name='conv_1x1',
+            use_bias=False,
+            need_activate=False
+        )
+        output_tensor = Resizing(
+            height=output_tensor_size[0],
+            width=output_tensor_size[1],
+            interpolation="bilinear")(output_tensor)
         return output_tensor
 
     def build_binary_segmentation_branch(self, input_tensor, name):
@@ -721,87 +812,141 @@ class BiseNetKerasV2(Model):
         input_tensor_size = input_tensor.get_shape().as_list()[1:3]
         output_tensor_size = [int(tmp * 8) for tmp in input_tensor_size]
 
-        with tf.variable_scope(name_or_scope=name):
-            output_tensor = self._conv_block(
-                input_tensor=input_tensor,
-                k_size=3,
-                output_channels=64,
-                stride=1,
-                name='conv_3x3',
-                use_bias=False,
-                need_activate=True
-            )
-            output_tensor = self._conv_block(
-                input_tensor=output_tensor,
-                k_size=1,
-                output_channels=128,
-                stride=1,
-                name='conv_1x1',
-                use_bias=False,
-                need_activate=True
-            )
-            output_tensor = self._conv_block(
-                input_tensor=output_tensor,
-                k_size=1,
-                output_channels=self._class_nums,
-                stride=1,
-                name='final_conv',
-                use_bias=False,
-                need_activate=False
-            )
-            output_tensor = tf.image.resize_bilinear(
-                output_tensor,
-                output_tensor_size,
-                name='binary_logits'
-            )
+        output_tensor = ConvBlk()(
+            input_tensor,
+            k_size=3,
+            output_channels=64,
+            stride=1,
+            #name='conv_3x3',
+            use_bias=False,
+            need_activate=True
+        )
+        output_tensor = ConvBlk()(
+            output_tensor,
+            k_size=1,
+            output_channels=128,
+            stride=1,
+            #name='conv_1x1',
+            use_bias=False,
+            need_activate=True
+        )
+        output_tensor = ConvBlk()(
+            output_tensor,
+            k_size=1,
+            output_channels=self._class_nums,
+            stride=1,
+            #name='final_conv',
+            use_bias=False,
+            need_activate=False
+        )
+        output_tensor = Resizing(
+            height=output_tensor_size[0],
+            width=output_tensor_size[1],
+            interpolation="bilinear")(output_tensor)
         return output_tensor
 
-    def build_model(self, input_tensor, name, reuse=False):
+    def call(self, input_tensor):
         """
 
         :param input_tensor:
-        :param name:
-        :param reuse:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name, reuse=reuse):
-            # build detail branch
-            detail_branch_output = self.build_detail_branch(
-                input_tensor=input_tensor,
-                name='detail_branch'
-            )
-            # build semantic branch
-            semantic_branch_output, _ = self.build_semantic_branch(
-                input_tensor=input_tensor,
-                name='semantic_branch',
-                prepare_data_for_booster=False
-            )
-            # build aggregation branch
-            aggregation_branch_output = self.build_aggregation_branch(
-                detail_output=detail_branch_output,
-                semantic_output=semantic_branch_output,
-                name='aggregation_branch'
-            )
-            # build binary and instance segmentation branch
-            binary_seg_branch_output = self.build_binary_segmentation_branch(
-                input_tensor=aggregation_branch_output,
-                name='binary_segmentation_branch'
-            )
-            instance_seg_branch_output = self.build_instance_segmentation_branch(
-                input_tensor=aggregation_branch_output,
-                name='instance_segmentation_branch'
-            )
-            # gather frontend output result
-            self._net_intermediate_results['binary_segment_logits'] = {
-                'data': binary_seg_branch_output,
-                'shape': binary_seg_branch_output.get_shape().as_list()
-            }
-            self._net_intermediate_results['instance_segment_logits'] = {
-                'data': instance_seg_branch_output,
-                'shape': instance_seg_branch_output.get_shape().as_list()
-            }
+        # build detail branch
+        detail_branch_output = self.build_detail_branch(
+            input_tensor=input_tensor,
+            name='detail_branch'
+        )
+        # build semantic branch
+        semantic_branch_output, semantic_branch_seg_logits = self.build_semantic_branch(
+            input_tensor=input_tensor,
+            name='semantic_branch',
+            prepare_data_for_booster=False
+        )
+        # build aggregation branch
+        aggregation_branch_output = self.build_aggregation_branch(
+            detail_output=detail_branch_output,
+            semantic_output=semantic_branch_output,
+            name='aggregation_branch'
+        )
+        # build binary and instance segmentation branch
+        binary_seg_branch_output = self.build_binary_segmentation_branch(
+            input_tensor=aggregation_branch_output,
+            name='binary_segmentation_branch'
+        )
+        instance_seg_branch_output = self.build_instance_segmentation_branch(
+            input_tensor=aggregation_branch_output,
+            name='instance_segmentation_branch'
+        )
+        self._net_intermediate_results['aggregation_branch_output']= {
+            'data': aggregation_branch_output,
+            'shape': aggregation_branch_output.get_shape().as_list()
+        }
+        self._semantic_branch_seg_logits = semantic_branch_seg_logits
+        # gather frontend output result
+        self._net_intermediate_results['binary_segment_logits'] = {
+            'data': binary_seg_branch_output,
+            'shape': binary_seg_branch_output.get_shape().as_list()
+        }
+        self._net_intermediate_results['instance_segment_logits'] = {
+            'data': instance_seg_branch_output,
+            'shape': instance_seg_branch_output.get_shape().as_list()
+        }
         return self._net_intermediate_results
+    
+    def compute_loss(self, label_tensor):
+        """
 
+        :param input_tensor:
+        :param label_tensor:
+        :return:
+        """
+        # build aggregation branch
+        aggregation_branch_output = self._net_intermediate_results['aggregation_branch_output']['data']
+        # build segmentation head
+        segment_logits = self._seg_head_block(
+            aggregation_branch_output,
+            #name='logits',
+            upsample_ratio=8,
+            feature_dims=self._seg_head_ratio * aggregation_branch_output.get_shape().as_list()[-1],
+            classes_nums=self._class_nums
+        )
+        self._semantic_branch_seg_logits['seg_head'] = segment_logits
+        # compute network loss
+        segment_loss = tf.constant(0.0, tf.float32)
+        for stage_name, seg_logits in self._semantic_branch_seg_logits.items():
+            loss_stage_name = '{:s}_segmentation_loss'.format(stage_name)
+            if self._loss_type == 'cross_entropy':
+                if not self._enable_ohem:
+                    segment_loss += self._compute_cross_entropy_loss(
+                        seg_logits=seg_logits,
+                        labels=label_tensor,
+                        class_nums=self._class_nums,
+                        name=loss_stage_name
+                    )
+                else:
+                    segment_loss += self._compute_ohem_cross_entropy_loss(
+                        seg_logits=seg_logits,
+                        labels=label_tensor,
+                        class_nums=self._class_nums,
+                        name=loss_stage_name,
+                        thresh=self._ohem_score_thresh,
+                        n_min=self._ohem_min_sample_nums
+                    )
+            else:
+                raise NotImplementedError('Not supported loss of type: {:s}'.format(self._loss_type))
+        l2_reg_loss = self._compute_l2_reg_loss(
+            var_list=tf.trainable_variables(),
+            weights_decay=self._weights_decay,
+            name='segment_l2_loss'
+        )
+        total_loss = segment_loss + l2_reg_loss
+        total_loss = tf.identity(total_loss, name='total_loss')
+
+        ret = {
+            'total_loss': total_loss,
+            'l2_loss': l2_reg_loss,
+        }
+        return ret
 
 if __name__ == '__main__':
     """
