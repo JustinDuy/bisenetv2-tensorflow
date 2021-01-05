@@ -584,14 +584,14 @@ class BiseNetKerasV2(Model):
                 repeat_times = param[4]
                 for repeat_index in range(repeat_times):
                     if stage_name == 'stage_3' and block_index == 1 and repeat_index == 1:
-                        result = ConvBlk()
-                        (result, 
-                         k_size=k_size,
-                         output_channels=output_channels,
-                         stride=stride,
-                         padding="SAME",
-                         use_bias=False,
-                         need_activate=False
+                        result = block_op(
+                            result, 
+                            k_size=k_size, 
+                            output_channels=output_channels,
+                            stride=stride,
+                            padding="SAME",
+                            use_bias=False,
+                            need_activate=False
                         )
                     else:
                         result = block_op(
