@@ -19,7 +19,7 @@ import tensorflow as tf
 import loguru
 import tqdm
 
-from bisenet_model import import bisenet_keras_v2
+from bisenet_model import bisenet_keras_v2
 from local_utils.config_utils import parse_config_utils
 from data_provider.cityscapes import cityscapes_tf_io
 
