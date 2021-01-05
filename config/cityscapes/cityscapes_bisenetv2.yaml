@@ -23,12 +23,12 @@ AUG:
         CONTRAST_JITTER_RATIO: 0.5
         SATURATION_JITTER_RATIO: 0.5
 DATASET:
-    DATA_DIR: '/PATH/IMAGE_SCENE_SEGMENTATION/CITYSPACES'
+    DATA_DIR: '/content/gdrive/MyDrive/leftImg8bit/'
     IMAGE_TYPE: 'rgb'  # choice rgb or rgba
     NUM_CLASSES: 19
-    TEST_FILE_LIST: '/PATH/IMAGE_SCENE_SEGMENTATION/CITYSPACES/image_file_index/test.txt'
-    TRAIN_FILE_LIST: '/PATH/IMAGE_SCENE_SEGMENTATION/CITYSPACES/image_file_index/train.txt'
-    VAL_FILE_LIST: '/PATH/IMAGE_SCENE_SEGMENTATION/CITYSPACES/image_file_index/val.txt'
+    TEST_FILE_LIST: '/content/gdrive/MyDrive/cityscapes/image_file_index/test.txt'
+    TRAIN_FILE_LIST: '/content/gdrive/MyDrive/cityscapes/image_file_index/train.txt'
+    VAL_FILE_LIST: '/content/gdrive/MyDrive/cityscapes/image_file_index/val.txt'
     IGNORE_INDEX: 255
     PADDING_VALUE: [127.5, 127.5, 127.5]
     MEAN_VALUE: [0.5, 0.5, 0.5]
@@ -46,8 +46,8 @@ MODEL:
 TEST:
     TEST_MODEL: 'model/cityscapes/final'
 TRAIN:
-    MODEL_SAVE_DIR: 'model/cityscapes/'
-    TBOARD_SAVE_DIR: 'tboard/cityscapes/'
+    MODEL_SAVE_DIR: '/content/gdrive/MyDrive/cityscapes/model/'
+    TBOARD_SAVE_DIR: '/content/gdrive/MyDrive/tboard/'
     MODEL_PARAMS_CONFIG_FILE_NAME: "model_train_config.json"
     RESTORE_FROM_SNAPSHOT:
         ENABLE: False
@@ -65,8 +65,8 @@ TRAIN:
         ENABLE: True
         EPOCH: 1
     MULTI_GPU:
-        ENABLE: True
-        GPU_DEVICES: ['0', '1', '2', '3']
+        ENABLE: False
+        GPU_DEVICES: ['0']
         CHIEF_DEVICE_INDEX: 0
 SOLVER:
     LR: 0.05
