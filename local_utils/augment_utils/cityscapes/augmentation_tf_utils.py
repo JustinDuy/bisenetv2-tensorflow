@@ -94,7 +94,7 @@ def resize(img, grt=None, mode='train', align_corners=True):
         value = tf.maximum(img.shape[0], img.shape[1])
         scale = float(random_size) / float(value)
         target_size = (int(img.shape[0] * scale), int(img.shape[1] * scale))
-        img = tf.image.resize_bilinear(images=img, size=target_size, align_corners=align_corners)
+        img = tf.image.resize(images=img, size=target_size, method='bilinear') #align_corners=align_corners)
         if grt is not None:
             grt = tf.image.resize_nearest_neighbor(
                 images=grt,
@@ -463,15 +463,17 @@ def preprocess_image_for_train(src_image, label_image):
     src_image, label_image = normalize_image(src_image, label_image)
     # downsample input image
     resize_image_size = (int(CFG.AUG.TRAIN_CROP_SIZE[1] / 2), int(CFG.AUG.TRAIN_CROP_SIZE[0] / 2))
-    src_image = tf.image.resize_bilinear(
+    src_image = tf.image.resize(
         images=tf.expand_dims(src_image, axis=0),
         size=resize_image_size,
-        align_corners=True
+        method='bilinear'
+        #align_corners=True
     )
-    label_image = tf.image.resize_nearest_neighbor(
+    label_image = tf.image.resize(
         images=tf.expand_dims(label_image, axis=0),
         size=resize_image_size,
-        align_corners=True
+        method='nearest'
+        #align_corners=True
     )
 
     src_image = tf.squeeze(src_image, axis=0)
@@ -492,15 +494,17 @@ def preprocess_image_for_val(src_image, label_image):
     src_image, label_image = normalize_image(src_image, label_image)
     # downsample input image
     resize_image_size = (int(CFG.AUG.TRAIN_CROP_SIZE[1] / 2), int(CFG.AUG.TRAIN_CROP_SIZE[0] / 2))
-    src_image = tf.image.resize_bilinear(
+    src_image = tf.image.resize(
         images=tf.expand_dims(src_image, axis=0),
         size=resize_image_size,
-        align_corners=True
+        method='bilinear'
+        #align_corners=True
     )
-    label_image = tf.image.resize_nearest_neighbor(
+    label_image = tf.image.resize(
         images=tf.expand_dims(label_image, axis=0),
         size=resize_image_size,
-        align_corners=True
+        method='nearest'
+        #align_corners=True
     )
 
     src_image = tf.squeeze(src_image, axis=0)
