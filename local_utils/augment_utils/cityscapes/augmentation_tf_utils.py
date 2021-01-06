@@ -96,10 +96,11 @@ def resize(img, grt=None, mode='train', align_corners=True):
         target_size = (int(img.shape[0] * scale), int(img.shape[1] * scale))
         img = tf.image.resize(images=img, size=target_size, method='bilinear') #align_corners=align_corners)
         if grt is not None:
-            grt = tf.image.resize_nearest_neighbor(
+            grt = tf.image.resize(
                 images=grt,
                 size=target_size,
-                align_corners=align_corners
+                method='nearest'
+                #align_corners=align_corners
             )
     else:
         raise Exception("Unexpect data augmention method: {}".format(CFG.AUG.AUG_METHOD))
@@ -135,60 +136,59 @@ def pad_to_bounding_box(
     :param pad_value:
     :return:
     """
-    with tf.name_scope(None, 'pad_to_bounding_box', [image]):
-        image = tf.convert_to_tensor(image, name='image')
-        original_dtype = image.dtype
-        if original_dtype != tf.float32 and original_dtype != tf.float64:
-            image = tf.cast(image, tf.int32)
-        image_rank_assert = tf.Assert(
-            tf.logical_or(
-                tf.equal(tf.rank(image), 3),
-                tf.equal(tf.rank(image), 4)),
-            ['Wrong image tensor rank.'])
-        with tf.control_dependencies([image_rank_assert]):
-            image -= pad_value
-        image_shape = image.get_shape()
-        is_batch = True
-        if image_shape.ndims == 3:
-            is_batch = False
-            image = tf.expand_dims(image, 0)
-        elif image_shape.ndims is None:
-            is_batch = False
-            image = tf.expand_dims(image, 0)
-            image.set_shape([None] * 4)
-        elif image.get_shape().ndims != 4:
-            raise ValueError('Input image must have either 3 or 4 dimensions.')
-        _, height, width, _ = _image_dimensions(image, rank=4)
-        target_width_assert = tf.Assert(
-            tf.greater_equal(
-                target_width, width),
-            ['target_width must be >= width'])
-        target_height_assert = tf.Assert(
-            tf.greater_equal(target_height, height),
-            ['target_height must be >= height'])
-        with tf.control_dependencies([target_width_assert]):
-            after_padding_width = target_width - offset_width - width
-        with tf.control_dependencies([target_height_assert]):
-            after_padding_height = target_height - offset_height - height
-        offset_assert = tf.Assert(
-            tf.logical_and(
-                tf.greater_equal(after_padding_width, 0),
-                tf.greater_equal(after_padding_height, 0)),
-            ['target size not possible with the given target offsets'])
-        batch_params = tf.stack([0, 0])
-        height_params = tf.stack([offset_height, after_padding_height])
-        width_params = tf.stack([offset_width, after_padding_width])
-        channel_params = tf.stack([0, 0])
-        with tf.control_dependencies([offset_assert]):
-            paddings = tf.stack([batch_params, height_params, width_params,
-                               channel_params])
-        padded = tf.pad(image, paddings)
-        if not is_batch:
-            padded = tf.squeeze(padded, axis=[0])
-        outputs = padded + pad_value
-        if outputs.dtype != original_dtype:
-            outputs = tf.cast(outputs, original_dtype)
-        return outputs
+    image = tf.convert_to_tensor(image, name='image')
+    original_dtype = image.dtype
+    if original_dtype != tf.float32 and original_dtype != tf.float64:
+        image = tf.cast(image, tf.int32)
+    image_rank_assert = tf.Assert(
+        tf.logical_or(
+            tf.equal(tf.rank(image), 3),
+            tf.equal(tf.rank(image), 4)),
+        ['Wrong image tensor rank.'])
+    with tf.control_dependencies([image_rank_assert]):
+        image -= pad_value
+    image_shape = image.get_shape()
+    is_batch = True
+    if image_shape.ndims == 3:
+        is_batch = False
+        image = tf.expand_dims(image, 0)
+    elif image_shape.ndims is None:
+        is_batch = False
+        image = tf.expand_dims(image, 0)
+        image.set_shape([None] * 4)
+    elif image.get_shape().ndims != 4:
+        raise ValueError('Input image must have either 3 or 4 dimensions.')
+    _, height, width, _ = _image_dimensions(image, rank=4)
+    target_width_assert = tf.Assert(
+        tf.greater_equal(
+            target_width, width),
+        ['target_width must be >= width'])
+    target_height_assert = tf.Assert(
+        tf.greater_equal(target_height, height),
+        ['target_height must be >= height'])
+    with tf.control_dependencies([target_width_assert]):
+        after_padding_width = target_width - offset_width - width
+    with tf.control_dependencies([target_height_assert]):
+        after_padding_height = target_height - offset_height - height
+    offset_assert = tf.Assert(
+        tf.logical_and(
+            tf.greater_equal(after_padding_width, 0),
+            tf.greater_equal(after_padding_height, 0)),
+        ['target size not possible with the given target offsets'])
+    batch_params = tf.stack([0, 0])
+    height_params = tf.stack([offset_height, after_padding_height])
+    width_params = tf.stack([offset_width, after_padding_width])
+    channel_params = tf.stack([0, 0])
+    with tf.control_dependencies([offset_assert]):
+        paddings = tf.stack([batch_params, height_params, width_params,
+                            channel_params])
+    padded = tf.pad(image, paddings)
+    if not is_batch:
+        padded = tf.squeeze(padded, axis=[0])
+    outputs = padded + pad_value
+    if outputs.dtype != original_dtype:
+        outputs = tf.cast(outputs, original_dtype)
+    return outputs
 
 
 def get_random_scale(min_scale_factor, max_scale_factor, step_size):
@@ -534,7 +534,7 @@ if __name__ == '__main__':
         label_image=source_label_image
     )
 
-    with tf.Session() as sess:
-        while True:
-            ret = sess.run([preprocess_src_img])
-            print(ret[0].shape)
+    #with tf.Session() as sess:
+    #    while True:
+    #        ret = sess.run([preprocess_src_img])
+    #        print(ret[0].shape)
