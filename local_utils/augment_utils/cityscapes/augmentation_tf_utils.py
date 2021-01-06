@@ -232,8 +232,8 @@ def randomly_scale_image_and_label(image, label=None, scale=1.0, align_corners=T
     Returns：
         resize后的图像和标签图
     """
-    if scale == 1.0:
-        return image, label
+    #if scale == 1.0:
+    #    return image, label
     image_shape = tf.shape(image)
     new_dim = tf.cast(
         tf.cast([image_shape[1], image_shape[2]], tf.float32) * scale,
