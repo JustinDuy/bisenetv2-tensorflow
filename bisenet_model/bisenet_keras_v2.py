@@ -10,8 +10,10 @@ BiseNet V2 Model
 """
 import tensorflow as tf
 from tensorflow import keras
-from keras.applications.xception import Xception,preprocess_input
-from keras.optimizers import SGD
+import keras.backend as K
+#from keras.applications.xception import Xception,preprocess_input
+#from keras.optimizers import SGD
+import collections
 from keras.models import Model
 from keras.layers import Conv2D, DepthwiseConv2D, Input, Dense, Dropout, Multiply, Dot, Concatenate, Add, GlobalAveragePooling2D, MaxPooling2D, concatenate
 from keras.layers import BatchNormalization, Activation, AveragePooling2D, UpSampling2D
@@ -32,38 +34,42 @@ class ConvBlk(keras.layers.Layer):
         super(ConvBlk, self).__init__()
 
     def call(self, input, **kwargs):
-        #output_channels=32, k_size=(3,3), padding="SAME", stride=2, use_bias=False, activation="relu", need_activate=False
         output_channels = kwargs['output_channels']
         assert isinstance(output_channels, int) or (isinstance(output_channels[0], int) and isinstance(output_channels[1], int))
 
-        self._conv = Conv2D(filters=self._output_channels, kernel_size=self._kernel, padding=self._padding, strides=self._stride, use_bias=self._use_bias)
-        self._bn = BatchNormalization()
-        self._act = Activation(self._activation)
-
         k_size = kwargs['k_size']
-        assert isinstance(k_size, int)
+        assert isinstance(k_size, int) or (isinstance(k_size[0], int) and isinstance(k_size[1], int))
         stride = kwargs['stride']
         assert isinstance(stride, int)
 
         if 'padding' in kwargs:
-            self._padding = kwargs['padding']
+            padding = kwargs['padding']
         else:
-            self._padding = "SAME"
+            padding = "SAME"
         if 'use_bias' in kwargs:
-            self._use_bias = kwargs['use_bias']
+            use_bias = kwargs['use_bias']
         else:
-            self._use_bias = False
+            use_bias = False
         if 'activation' in kwargs:
-            self._activation = kwargs['activation']
+            activation = kwargs['activation']
         else:
-            self._activation = "relu"
+            activation = "relu"
         if 'need_activate' in kwargs:
-            self._need_activate = kwargs['need_activate']
+            need_activate = kwargs['need_activate']
         else:
-            self._need_activate = False
+            need_activate = False
+        self._conv = Conv2D(
+            filters=output_channels,
+            kernel_size=k_size,
+            padding=padding,
+            strides=stride,
+            use_bias=use_bias
+        )
+        self._bn = BatchNormalization()
+        self._act = Activation(activation)
         x = self._conv(input)
         x = self._bn(x)
-        if self._need_activate:
+        if need_activate:
             x = self._act(x)
         return x
 
@@ -106,26 +112,26 @@ class _StemBlock(keras.layers.Layer):
         x = ConvBlk()(
             input_tensor, 
             output_channels=output_channels, 
-            k_size=(3, 3), 
+            k_size=3,
             stride=2)
-        left_branch = ConvBlk()(
+        branch_left_output = ConvBlk()(
             x,
             output_channels=int(output_channels/2), 
-            k_size=(1,1), 
+            k_size=1,
             stride=1, 
             need_activate=True)
-        left_branch = ConvBlk()(
-            left_branch,
+        branch_left_output = ConvBlk()(
+            branch_left_output,
             output_channels=output_channels, 
-            k_size=(3,3), 
+            k_size=3,
             stride=2, 
             need_activate=True)
-        right_branch = MaxPooling2D(pool_size=(3, 3), stride=2, need_activate=True)(x)
-        concat = concatenate([left_branch, right_branch], axis=-1)
+        branch_right_output = MaxPooling2D(pool_size=(3, 3), strides=(2,2), padding='same')(x)
+        concat = concatenate([branch_left_output, branch_right_output], axis=-1)
         result = ConvBlk()(
             concat,
             output_channels=output_channels, 
-            k_size=(3, 3), 
+            k_size=3,
             stride=1, 
             need_activate=True)
         return result
@@ -155,27 +161,31 @@ class _ContextEmbedding(keras.layers.Layer):
             phase = tf.constant(self._phase, dtype=tf.string)
         return tf.equal(phase, tf.constant('train', dtype=tf.string))
 
-    def call(self, inputs):
+    def call(self, input):
         """
 
-        :param inputs:
+        :param input:
         :return:
         """
-        x = GlobalAveragePooling2D()(inputs)
+        output_channels = input.get_shape().as_list()[-1]
+        #x = GlobalAveragePooling2D()(inputs)
+        x = tf.math.reduce_mean(input, axis=[1, 2], keepdims=True)
         x = BatchNormalization()(x)
         x = ConvBlk()(
             x,
-            output_channels=input_shape[-1], 
-            k_size=(1, 1), 
+            output_channels=output_channels,
+            k_size=1,
             stride=1, 
             need_activate=True)
-        fused = Add()[x, inputs]
+        fused = Add()([x, input])
         result = ConvBlk()(
             fused,
-            output_channels=input_shape[-1], 
+            output_channels=output_channels,
             k_size=(3, 3), 
-            stride=2, 
+            stride=1,
             need_activate=True)
+        assert result.get_shape().as_list()[1] == input.get_shape().as_list()[1]
+        assert result.get_shape().as_list()[2] == input.get_shape().as_list()[2]
         return result
 
 class _GatherExpansion(keras.layers.Layer):
@@ -202,13 +212,13 @@ class _GatherExpansion(keras.layers.Layer):
         if 'e' in kwargs:
             self._expansion_factor = kwargs['e']
         if 'output_channels' in kwargs:
-            output_channels = kwargs['output_channels']
-
+            self._output_channels = kwargs['output_channels']
+        input_tensor_channels = input.get_shape().as_list()[-1]
         if self._stride == 1:
             x = ConvBlk()(
                 input,
                 output_channels=input_tensor_channels, 
-                k_size=(3,3), 
+                k_size=3,
                 stride=1, 
                 padding=self._padding, 
                 need_activate=True)
@@ -217,16 +227,18 @@ class _GatherExpansion(keras.layers.Layer):
                 strides=1,
                 padding=self._padding,
                 depth_multiplier=self._expansion_factor)(x)
-            x = BatchNormalization(x)
+            x = BatchNormalization()(x)
             x = ConvBlk()(
                 x,
                 output_channels=input_tensor_channels, 
-                k_size=(1,1), 
+                k_size=1,
                 stride=1, 
                 padding=self._padding, 
                 need_activate=False)
-            fused_features = Add()[input, x]
-            result = self._relu(fused_features)
+            fused_features = tf.add(input, x)
+            result = Activation('relu')(fused_features)
+            assert result.get_shape().as_list()[1] == input.get_shape().as_list()[1]
+            assert result.get_shape().as_list()[2] == input.get_shape().as_list()[2]
             return result
         elif self._stride == 2:
             input_proj = DepthwiseConv2D(
@@ -234,10 +246,10 @@ class _GatherExpansion(keras.layers.Layer):
                 strides=self._stride,
                 padding=self._padding,
                 depth_multiplier=1)(input)
-            input_proj = BatchNormalization(input_proj)
+            input_proj = BatchNormalization()(input_proj)
             input_proj = ConvBlk()(
                 input_proj,
-                output_channels=self._output_channels, 
+                output_channels=self._output_channels,
                 k_size=(1,1), 
                 stride=1, 
                 padding=self._padding, 
@@ -254,13 +266,13 @@ class _GatherExpansion(keras.layers.Layer):
                 strides=2,
                 padding=self._padding,
                 depth_multiplier=self._expansion_factor)(result)
-            result = BatchNormalization(result)
+            result = BatchNormalization()(result)
             result = DepthwiseConv2D(
                 kernel_size=(3,3),
                 strides=1,
                 padding=self._padding,
                 depth_multiplier=1)(result)
-            result = BatchNormalization(result)
+            result = BatchNormalization()(result)
             result = ConvBlk()(
                 result,
                 output_channels=self._output_channels, 
@@ -268,8 +280,10 @@ class _GatherExpansion(keras.layers.Layer):
                 stride=1, 
                 padding=self._padding, 
                 need_activate=False)
-            fused_features = Add()[input_proj, result]
-            result = Activation("relu")(fused_features)
+            fused_features = tf.add(input_proj, result)
+            result = Activation('relu')(fused_features)
+            assert (result.get_shape().as_list()[1] * 2) == input.get_shape().as_list()[1]
+            assert (result.get_shape().as_list()[2] * 2) == input.get_shape().as_list()[2]
             return result
         else:
             raise NotImplementedError('No function matched with stride of {}'.format(self._stride))
@@ -332,8 +346,8 @@ class _GuidedAggregation(keras.layers.Layer):
             padding="SAME",
             strides=2)
         self._semantic_branch_3x3_dw_conv_block = DepthwiseConv2D(
-            k_size=(3,3),
-            stride=1,
+            kernel_size=(3,3),
+            strides=1,
             padding=self._padding,
             depth_multiplier=1)
         self._semantic_branch_bn_1 = BatchNormalization()
@@ -345,16 +359,7 @@ class _GuidedAggregation(keras.layers.Layer):
             use_bias=False)
         self._semantic_branch_remain_sigmoid = Activation("sigmoid")
         self._semantic_branch_3x3_conv_block = ConvBlk()
-        self._semantic_branch_upsample_features = Resizing(
-            height=detail_input_tensor_shape[1],
-            width=detail_input_tensor_shape[2],
-            interpolation="bilinear")
         self._semantic_branch_upsample_sigmoid= Activation("sigmoid")
-
-        self._guided_upsample_features = Resizing(
-            height=detail_input_tensor_shape[1],
-            width=detail_input_tensor_shape[2],
-            interpolation="bilinear")
         self._aggregation_feature_conv_blk = ConvBlk()
         super(_GuidedAggregation, self).build(input_shapes)  
 
@@ -369,6 +374,8 @@ class _GuidedAggregation(keras.layers.Layer):
 
         detail_input_tensor = inputs[0]
         semantic_input_tensor = inputs[1]
+        assert detail_input_tensor.get_shape().as_list()[-1] == semantic_input_tensor.get_shape().as_list()[-1]
+
         output_channels = detail_input_tensor.get_shape().as_list()[-1]
         # detail branch
         detail_branch_remain = self._detail_branch_3x3_dw_conv_block(detail_input_tensor)
@@ -377,7 +384,7 @@ class _GuidedAggregation(keras.layers.Layer):
         detail_branch_downsample = self._detail_branch_3x3_conv_block(
             detail_input_tensor,
             output_channels=output_channels, 
-            k_size=(3,3), 
+            k_size=3,
             stride=2, 
             padding=self._padding, 
             need_activate=False)
@@ -391,18 +398,26 @@ class _GuidedAggregation(keras.layers.Layer):
         semantic_branch_upsample = self._semantic_branch_3x3_conv_block(
             semantic_input_tensor,
             output_channels=output_channels, 
-            k_size=(3,3), 
+            k_size=3,
             stride=1, 
             padding=self._padding, 
             need_activate=False)
-        semantic_branch_upsample = self._semantic_branch_upsample_features(semantic_branch_upsample)
+        semantic_branch_upsample = tf.image.resize(
+            semantic_branch_upsample,
+            detail_input_tensor.shape[1:3],
+            method='bilinear'
+        )
         semantic_branch_upsample = self._semantic_branch_upsample_sigmoid(semantic_branch_upsample)
 
         # aggregation features
-        guided_detail_features = Multiply()([detail_branch_remain, semantic_branch_upsample])
-        guided_semantic_features = Multiply()([detail_branch_downsample, semantic_branch_remain])
-        guided_upsample_features = self._guided_upsample_features(guided_semantic_features)
-        fused_features = Add()([guided_detail_features, guided_upsample_features])
+        guided_detail_features = tf.multiply(detail_branch_remain, semantic_branch_upsample)
+        guided_semantic_features =  tf.multiply(detail_branch_downsample, semantic_branch_remain)
+        guided_features_upsample = tf.image.resize(
+            guided_semantic_features,
+            detail_input_tensor.shape[1:3],
+            method='bilinear'
+        )
+        fused_features = tf.add(guided_detail_features, guided_features_upsample)
         aggregation_feature_output = self._aggregation_feature_conv_blk(
             fused_features,
             output_channels=output_channels, 
@@ -492,9 +507,9 @@ class BiseNetKerasV2(Model):
         if self._enable_ohem:
             self._ohem_score_thresh = self._cfg.SOLVER.OHEM.SCORE_THRESH
             self._ohem_min_sample_nums = self._cfg.SOLVER.OHEM.MIN_SAMPLE_NUMS
-        self._ge_expand_ratio = self._cfg.MODEL.BiseNetKerasV2.GE_EXPAND_RATIO
-        self._semantic_channel_ratio = self._cfg.MODEL.BiseNetKerasV2.SEMANTIC_CHANNEL_LAMBDA
-        self._seg_head_ratio = self._cfg.MODEL.BiseNetKerasV2.SEGHEAD_CHANNEL_EXPAND_RATIO
+        self._ge_expand_ratio = self._cfg.MODEL.BISENETV2.GE_EXPAND_RATIO
+        self._semantic_channel_ratio = self._cfg.MODEL.BISENETV2.SEMANTIC_CHANNEL_LAMBDA
+        self._seg_head_ratio = self._cfg.MODEL.BISENETV2.SEGHEAD_CHANNEL_EXPAND_RATIO
 
         # set module used in BiseNetKerasV2
         self._conv_block = ConvBlk()
@@ -537,7 +552,7 @@ class BiseNetKerasV2(Model):
         :return:
         """
         params = [
-            # stage        op           k  c   s  r
+            # stage        opr          k  c   s  r
             ('stage_1', [('conv_block', 3, 64, 2, 1), ('conv_block', 3, 64, 1, 1)]),
             ('stage_2', [('conv_block', 3, 64, 2, 1), ('conv_block', 3, 64, 1, 2)]),
             ('stage_3', [('conv_block', 3, 128, 2, 1), ('conv_block', 3, 128, 1, 2)]),
@@ -550,7 +565,9 @@ class BiseNetKerasV2(Model):
         :return:
         """
         stage_1_channels = int(self._detail_branch_channels['stage_1'][0][2] * self._semantic_channel_ratio)
+        assert stage_1_channels == 16
         stage_3_channels = int(self._detail_branch_channels['stage_3'][0][2] * self._semantic_channel_ratio)
+        assert stage_3_channels == 32
         params = [
             ('stage_1', [('se', 3, stage_1_channels, 1, 4, 1)]),
             ('stage_3', [('ge', 3, stage_3_channels, self._ge_expand_ratio, 2, 1),
@@ -559,7 +576,7 @@ class BiseNetKerasV2(Model):
                          ('ge', 3, stage_3_channels * 2, self._ge_expand_ratio, 1, 1)]),
             ('stage_5', [('ge', 3, stage_3_channels * 4, self._ge_expand_ratio, 2, 1),
                          ('ge', 3, stage_3_channels * 4, self._ge_expand_ratio, 1, 3),
-                         ('ce', 3, stage_3_channels * 4, self._ge_expand_ratio, 1, 1)])
+                         ('ce', 3, stage_3_channels * 4, 1, 1, 1)])
         ]
         return collections.OrderedDict(params)
 
@@ -573,29 +590,28 @@ class BiseNetKerasV2(Model):
         :param name:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name):
-            # first check if the logits' shape is matched with the labels'
-            seg_logits_shape = seg_logits.shape[1:3]
-            labels_shape = labels.shape[1:3]
-            seg_logits = tf.cond(
-                tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
-                true_fn=lambda: seg_logits,
-                false_fn=lambda: tf.image.resize_bilinear(seg_logits, labels_shape)
-            )
-            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
-            labels = tf.reshape(labels, [-1, ])
-            indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
-            seg_logits = tf.gather(seg_logits, indices)
-            labels = tf.cast(tf.gather(labels, indices), tf.int32)
+        # first check if the logits' shape is matched with the labels'
+        seg_logits_shape = seg_logits.shape[1:3]
+        labels_shape = labels.shape[1:3]
+        seg_logits = tf.cond(
+            tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
+            true_fn=lambda: seg_logits,
+            false_fn=lambda: tf.image.resize(seg_logits, labels_shape, method='bilinear')
+        )
+        seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+        labels = tf.reshape(labels, [-1, ])
+        indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
+        seg_logits = tf.gather(seg_logits, indices)
+        labels = tf.cast(tf.gather(labels, indices), tf.int32)
 
-            # compute cross entropy loss
-            loss = tf.reduce_mean(
-                tf.nn.sparse_softmax_cross_entropy_with_logits(
-                    labels=labels,
-                    logits=seg_logits
-                ),
-                name='cross_entropy_loss'
-            )
+        # compute cross entropy loss
+        loss = tf.math.reduce_mean(
+            tf.nn.sparse_softmax_cross_entropy_with_logits(
+                labels=labels,
+                logits=seg_logits
+            ),
+            name='cross_entropy_loss'
+        )
         return loss
 
     @classmethod
@@ -608,37 +624,36 @@ class BiseNetKerasV2(Model):
         :param name:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name):
-            # first check if the logits' shape is matched with the labels'
-            seg_logits_shape = seg_logits.shape[1:3]
-            labels_shape = labels.shape[1:3]
-            seg_logits = tf.cond(
-                tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
-                true_fn=lambda: seg_logits,
-                false_fn=lambda: tf.image.resize_bilinear(seg_logits, labels_shape)
-            )
-            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
-            labels = tf.reshape(labels, [-1, ])
-            indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
-            seg_logits = tf.gather(seg_logits, indices)
-            labels = tf.cast(tf.gather(labels, indices), tf.int32)
+        # first check if the logits' shape is matched with the labels'
+        seg_logits_shape = seg_logits.shape[1:3]
+        labels_shape = labels.shape[1:3]
+        seg_logits = tf.cond(
+            tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
+            true_fn=lambda: seg_logits,
+            false_fn=lambda: tf.image.resize(seg_logits, labels_shape, method='bilinear')
+        )
+        seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+        labels = tf.reshape(labels, [-1, ])
+        indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
+        seg_logits = tf.gather(seg_logits, indices)
+        labels = tf.cast(tf.gather(labels, indices), tf.int32)
 
-            # compute cross entropy loss
-            loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                labels=labels,
-                logits=seg_logits
-            )
-            loss, _ = tf.nn.top_k(loss, tf.size(loss), sorted=True)
+        # compute cross entropy loss
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=labels,
+            logits=seg_logits
+        )
+        loss, _ = tf.nn.top_k(loss, tf.size(loss), sorted=True)
 
-            # apply ohem
-            ohem_thresh = tf.multiply(-1.0, tf.math.log(thresh), name='ohem_score_thresh')
-            ohem_cond = tf.greater(loss[n_min], ohem_thresh)
-            loss_select = tf.cond(
-                pred=ohem_cond,
-                true_fn=lambda: tf.gather(loss, tf.squeeze(tf.where(tf.greater(loss, ohem_thresh)), 1)),
-                false_fn=lambda: loss[:n_min]
-            )
-            loss_value = tf.reduce_mean(loss_select, name='ohem_cross_entropy_loss')
+        # apply ohem
+        ohem_thresh = tf.multiply(-1.0, tf.math.log(thresh), name='ohem_score_thresh')
+        ohem_cond = tf.greater(loss[n_min], ohem_thresh)
+        loss_select = tf.cond(
+            pred=ohem_cond,
+            true_fn=lambda: tf.gather(loss, tf.squeeze(tf.where(tf.greater(loss, ohem_thresh)), 1)),
+            false_fn=lambda: loss[:n_min]
+        )
+        loss_value = tf.math.reduce_mean(loss_select, name='ohem_cross_entropy_loss')
         return loss_value
 
     @classmethod
@@ -650,16 +665,16 @@ class BiseNetKerasV2(Model):
         :param name:
         :return:
         """
-        with tf.variable_scope(name_or_scope=name):
-            l2_reg_loss = tf.constant(0.0, tf.float32)
-            for vv in var_list:
-                if 'beta' in vv.name or 'gamma' in vv.name or 'b:0' in vv.name.split('/')[-1]:
-                    continue
-                else:
-                    l2_reg_loss = tf.add(l2_reg_loss, tf.nn.l2_loss(vv))
-            l2_reg_loss *= weights_decay
-            l2_reg_loss = tf.identity(l2_reg_loss, 'l2_loss')
 
+        l2_reg_loss = tf.constant(0.0, tf.float32)
+        for vv in var_list:
+            if 'beta' in vv.name or 'gamma' in vv.name or 'b:0' in vv.name.split('/')[-1]:
+                continue
+            else:
+                l2_reg_loss += tf.nn.l2_loss(vv)
+        l2_reg_loss *= weights_decay
+        l2_reg_loss = tf.identity(l2_reg_loss, 'l2_loss')
+        K.print_tensor(l2_reg_loss)
         return l2_reg_loss
 
     def build_detail_branch(self, input_tensor, name):
@@ -692,13 +707,14 @@ class BiseNetKerasV2(Model):
                         )
                     else:
                         result = block_op(
+                            result,
                             k_size=k_size,
                             output_channels=output_channels,
                             stride=stride,
                             padding="SAME",
                             use_bias=False,
                             need_activate=True
-                        )(result)
+                        )
         return result
 
     def build_semantic_branch(self, input_tensor, name, prepare_data_for_booster=False):
@@ -736,7 +752,7 @@ class BiseNetKerasV2(Model):
                         )
                     elif block_op_name == 'se':
                         result = block_op(
-                            input_tensor=result,
+                            result,
                             output_channels=output_channels,
                             name='stem_block'
                         )
@@ -891,8 +907,9 @@ class BiseNetKerasV2(Model):
             'data': instance_seg_branch_output,
             'shape': instance_seg_branch_output.get_shape().as_list()
         }
-        return self._net_intermediate_results
-    
+        #return self._net_intermediate_results
+        return [semantic_branch_seg_logits, aggregation_branch_output, binary_seg_branch_output, instance_seg_branch_output]
+
     def compute_loss(self, label_tensor):
         """
 
@@ -900,6 +917,7 @@ class BiseNetKerasV2(Model):
         :param label_tensor:
         :return:
         """
+        K.print_tensor(label_tensor)
         # build aggregation branch
         aggregation_branch_output = self._net_intermediate_results['aggregation_branch_output']['data']
         # build segmentation head
@@ -934,19 +952,21 @@ class BiseNetKerasV2(Model):
                     )
             else:
                 raise NotImplementedError('Not supported loss of type: {:s}'.format(self._loss_type))
-        l2_reg_loss = self._compute_l2_reg_loss(
-            var_list=tf.trainable_variables(),
-            weights_decay=self._weights_decay,
-            name='segment_l2_loss'
-        )
-        total_loss = segment_loss + l2_reg_loss
-        total_loss = tf.identity(total_loss, name='total_loss')
+        return segment_loss
+        #l2_reg_loss = self._compute_l2_reg_loss(
+        #    var_list= self.trainable_variables,
+        #    weights_decay=self._weights_decay,
+        #    name='segment_l2_loss'
+        #)
+        #total_loss = segment_loss + l2_reg_loss
+        #total_loss = tf.identity(total_loss, name='total_loss')
 
-        ret = {
-            'total_loss': total_loss,
-            'l2_loss': l2_reg_loss,
-        }
-        return ret
+        #ret = {
+        #    'total_loss': total_loss,
+        #    'l2_loss': l2_reg_loss,
+        #}
+        #return ret
+        #return l2_reg_loss
 
 if __name__ == '__main__':
     """

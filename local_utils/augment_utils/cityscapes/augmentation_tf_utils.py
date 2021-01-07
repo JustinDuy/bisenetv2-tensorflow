@@ -338,9 +338,9 @@ def rand_crop(image_list, crop_height, crop_width):
     with tf.control_dependencies(asserts):
         max_offset_height = tf.reshape(image_height - crop_height + 1, [])
         max_offset_width = tf.reshape(image_width - crop_width + 1, [])
-    offset_height = tf.random_uniform(
+    offset_height = tf.random.uniform(
         [], maxval=max_offset_height, dtype=tf.int32)
-    offset_width = tf.random_uniform(
+    offset_width = tf.random.uniform(
         [], maxval=max_offset_width, dtype=tf.int32)
 
     return [_crop(image, offset_height, offset_width, crop_height, crop_width) for image in image_list]
@@ -384,7 +384,7 @@ def random_flip_image(img, grt):
         else:
             n = int(1.0 / CFG.AUG.FLIP_RATIO)
         if n > 0:
-            random_value = tf.random_uniform([])
+            random_value = tf.random.uniform([])
             is_flipped = tf.less_equal(random_value, 0.5)
             img = tf.cond(is_flipped, true_fn=lambda: img[::-1, :, :], false_fn=lambda: img)
             grt = tf.cond(is_flipped, true_fn=lambda: grt[::-1, :, :], false_fn=lambda: grt)
@@ -400,7 +400,7 @@ def random_mirror_image(img, grt):
     :return:
     """
     if CFG.AUG.MIRROR:
-        random_value = tf.random_uniform([])
+        random_value = tf.random.uniform([])
         is_mirrored = tf.less_equal(random_value, 0.5)
         img = tf.cond(is_mirrored, true_fn=lambda: img[:, ::-1, :], false_fn=lambda: img)
         grt = tf.cond(is_mirrored, true_fn=lambda: grt[:, ::-1, :], false_fn=lambda: grt)

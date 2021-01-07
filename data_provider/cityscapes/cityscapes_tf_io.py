@@ -135,10 +135,10 @@ class _CityScapesTfWriter(object):
                 gt_label_image_path = sample_path[1]
 
                 # prepare gt image
-                gt_image_raw = tf.gfile.FastGFile(gt_src_image_path, 'rb').read()
+                gt_image_raw = tf.io.gfile.GFile(gt_src_image_path, 'rb').read()
 
                 # prepare gt binary image
-                gt_binary_image_raw = tf.gfile.FastGFile(gt_label_image_path, 'rb').read()
+                gt_binary_image_raw = tf.io.gfile.GFile(gt_label_image_path, 'rb').read()
 
                 example = tf.train.Example(
                     features=tf.train.Features(
@@ -218,7 +218,7 @@ class _CityScapesTfReader(object):
             raise ValueError('Wrong dataset flags')
         return num_batchs
 
-    def next_batch(self, batch_size):
+    def get_batch(self, batch_size):
         """
         dataset feed pipline input
         :return: A tuple (images, labels), where:
@@ -231,44 +231,42 @@ class _CityScapesTfReader(object):
         assert ops.exists(tfrecords_file_paths), '{:s} not exist'.format(tfrecords_file_paths)
 
         with tf.device('/cpu:0'):
-            with tf.name_scope('input_tensor'):
+            # TFRecordDataset opens a binary file and reads one record at a time.
+            # `tfrecords_file_paths` could also be a list of filenames, which will be read in order.
+            dataset = tf.data.TFRecordDataset(tfrecords_file_paths)
 
-                # TFRecordDataset opens a binary file and reads one record at a time.
-                # `tfrecords_file_paths` could also be a list of filenames, which will be read in order.
-                dataset = tf.data.TFRecordDataset(tfrecords_file_paths)
-
-                # The map transformation takes a function and applies it to every element
-                # of the dataset.
+            # The map transformation takes a function and applies it to every element
+            # of the dataset.
+            dataset = dataset.map(
+                map_func=aug.decode,
+                num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
+            )
+            if self._dataset_flags == 'train':
                 dataset = dataset.map(
-                    map_func=aug.decode,
+                    map_func=aug.preprocess_image_for_train,
                     num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
                 )
-                if self._dataset_flags == 'train':
-                    dataset = dataset.map(
-                        map_func=aug.preprocess_image_for_train,
-                        num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
-                    )
-                elif self._dataset_flags == 'val':
-                    dataset = dataset.map(
-                        map_func=aug.preprocess_image_for_val,
-                        num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
-                    )
+            elif self._dataset_flags == 'val':
+                dataset = dataset.map(
+                    map_func=aug.preprocess_image_for_val,
+                    num_parallel_calls=CFG.DATASET.CPU_MULTI_PROCESS_NUMS
+                )
 
-                # The shuffle transformation uses a finite-sized buffer to shuffle elements
-                # in memory. The parameter is the number of elements in the buffer. For
-                # completely uniform shuffling, set the parameter to be the same as the
-                # number of elements in the dataset.
-                dataset = dataset.shuffle(buffer_size=512)
-                # repeat num epochs
-                dataset = dataset.repeat(self._epoch_nums)
+            # The shuffle transformation uses a finite-sized buffer to shuffle elements
+            # in memory. The parameter is the number of elements in the buffer. For
+            # completely uniform shuffling, set the parameter to be the same as the
+            # number of elements in the dataset.
+            dataset = dataset.shuffle(buffer_size=512)
+            # repeat num epochs
+            dataset = dataset.repeat(self._epoch_nums)
 
-                dataset = dataset.batch(batch_size=batch_size, drop_remainder=True)
-                dataset = dataset.prefetch(buffer_size=batch_size * 16)
+            dataset = dataset.batch(batch_size=batch_size, drop_remainder=True)
+            dataset = dataset.prefetch(buffer_size=batch_size * 16)
 
-                iterator = dataset.make_one_shot_iterator()
+            #iterator = dataset.make_one_shot_iterator()
 
-        return iterator.get_next(name='{:s}_IteratorGetNext'.format(self._dataset_flags))
-
+        #return iterator.get_next(name='{:s}_IteratorGetNext'.format(self._dataset_flags))
+        return dataset
 
 class CityScapesTfIO(object):
     """

@@ -1,5 +1,6 @@
 six
 tensorflow_gpu
+keras
 tensorrt
 pycuda
 loguru
@@ -11,3 +12,5 @@ matplotlib
 Pillow
 scikit_learn
 PyYAML
+graphviz
+pydot

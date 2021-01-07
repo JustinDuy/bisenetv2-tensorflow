@@ -13,7 +13,8 @@ import os.path as ops
 import shutil
 import time
 import math
-from tensorflow import keras
+import keras
+from keras.utils.vis_utils import plot_model
 import numpy as np
 import tensorflow as tf
 import loguru
@@ -77,7 +78,7 @@ class BiseNetV2CityScapesTrainer(object):
         #self._sess = tf.Session(config=sess_config)
 
         # define graph input tensor
-        self._input_src_image, self._input_label_image = self._train_dataset.next_batch(
+        self._batch = self._train_dataset.get_batch(
             batch_size=self._batch_size
         )
 
@@ -129,25 +130,25 @@ class BiseNetV2CityScapesTrainer(object):
                 power=self._lr_polynimal_decay_power)
         )
         self._learn_rate = tf.identity(self._learn_rate, 'lr')
-        global_step_update = tf.assign_add(self._global_step, 1.0)
+        #global_step_update = tf.assign_add(self._global_step, 1.0)
 
         # define moving average op
-        if CFG.TRAIN.FREEZE_BN.ENABLE:
-            train_var_list = [
-                v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
-            ]
-        else:
-            train_var_list = tf.trainable_variables()
-        moving_ave_op = tf.train.ExponentialMovingAverage(
-            self._moving_ave_decay).apply(train_var_list + tf.moving_average_variables())
+        #if CFG.TRAIN.FREEZE_BN.ENABLE:
+        #    train_var_list = [
+        #        v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+        #    ]
+        #else:
+        #    train_var_list = tf.trainable_variables()
+        #moving_ave_op = tf.train.ExponentialMovingAverage(
+        #    self._moving_ave_decay).apply(train_var_list + tf.moving_average_variables())
 
         # define training op
-        if CFG.TRAIN.FREEZE_BN.ENABLE:
-            train_var_list = [
-                v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
-            ]
-        else:
-            train_var_list = tf.trainable_variables()
+        #if CFG.TRAIN.FREEZE_BN.ENABLE:
+        #    train_var_list = [
+        #        v for v in tf.trainable_variables() if 'beta' not in v.name and 'gamma' not in v.name
+        #    ]
+        #else:
+        #    train_var_list = tf.trainable_variables()
         if self._optimizer_mode == 'sgd':
             self._optimizer = keras.optimizers.SGD(
                 learning_rate=self._learn_rate,
@@ -159,16 +160,16 @@ class BiseNetV2CityScapesTrainer(object):
             )
         else:
             raise ValueError('Not support optimizer: {:s}'.format(self._optimizer_mode))
-        optimize_op = optimizer.minimize(self._loss, var_list=train_var_list)
-        with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-            with tf.control_dependencies([optimize_op, global_step_update]):
-                with tf.control_dependencies([moving_ave_op]):
-                    self._train_op = tf.no_op()
+        #optimize_op = optimizer.minimize(self._loss, var_list=train_var_list)
+        #with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
+        #    with tf.control_dependencies([optimize_op, global_step_update]):
+        #        with tf.control_dependencies([moving_ave_op]):
+        #            self._train_op = tf.no_op()
 
         # define saver and loader
-        self._net_var = [vv for vv in tf.global_variables() if 'lr' not in vv.name]
-        self._loader = tf.train.Saver(self._net_var)
-        self._saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
+        #self._net_var = [vv for vv in tf.global_variables() if 'lr' not in vv.name]
+        #self._loader = tf.train.Saver(self._net_var)
+        #self._saver = tf.train.Saver(tf.global_variables(), max_to_keep=5)
 
         # define summary
         #summary_merge_list = [
@@ -247,78 +248,95 @@ class BiseNetV2CityScapesTrainer(object):
             LOG.info('=> Starts to train BiseNetV2 from scratch ...')
             epoch_start_pt = 1
 
-        for epoch in range(epoch_start_pt, self._train_epoch_nums):
-            train_epoch_losses = []
-            train_epoch_mious = []
-            traindataset_pbar = tqdm.tqdm(range(1, self._steps_per_epoch))
+        # Define custom loss
+        def custom_loss():
+            def loss(y_true, _):
+                return self._model.compute_loss(y_true)['l2_loss']
 
-            for _ in traindataset_pbar:
-                self._loss = train_step(self._input_src_image, self._input_label_image)
-                #if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                    #_, _, summary, train_step_loss, global_step_val = self._sess.run(
-                    #    fetches=[
-                    #        self._train_op, self._miou_update_op,
-                    #        self._write_summary_op_with_miou,
-                    #        self._loss, self._global_step
-                    #    ]
-                    #)
-                    
-                    #train_step_miou = self._sess.run(
-                    #    fetches=self._miou
-                    #)
+            # Return a function
+            return loss
 
-                    #train_epoch_losses.append(train_step_loss)
-                    #train_epoch_mious.append(train_step_miou)
-                    #self._summary_writer.add_summary(summary, global_step=global_step_val)
-                    #traindataset_pbar.set_description(
-                    #    'train loss: {:.5f}, miou: {:.5f}'.format(train_step_loss, train_step_miou)
-                    #)
-                #else:
-                #    _, summary, train_step_loss, global_step_val = self._sess.run(
-                #        fetches=[
-                #            self._train_op, self._write_summary_op,
-                #            self._loss, self._global_step
-                #        ]
-                #    )
-                #    train_epoch_losses.append(train_step_loss)
-                #    self._summary_writer.add_summary(summary, global_step=global_step_val)
-                #    traindataset_pbar.set_description(
-                #        'train loss: {:.5f}'.format(train_step_loss)
-                #    )
+        # Compile the model
+        self._model.compile(optimizer=self._optimizer_mode,
+                      loss=custom_loss(),  # Call the loss function with the selected layer
+                      metrics=['accuracy'])
+        #plot_model(self._model, "bisetnetKerasv2.png")
+        # train
+        self._model.fit(self._batch, epochs=self._train_epoch_nums, batch_size=self._batch_size)
 
-            train_epoch_losses = np.mean(train_epoch_losses)
-            if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                train_epoch_mious = np.mean(train_epoch_mious)
-
-            #if epoch % self._snapshot_epoch == 0:
-                #if self._enable_miou:
-                    #snapshot_model_name = 'cityscapes_train_miou={:.4f}.ckpt'.format(train_epoch_mious)
-                    #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
-                    #os.makedirs(self._model_save_dir, exist_ok=True)
-                    #self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
-                #else:
-                    #snapshot_model_name = 'cityscapes_train_loss={:.4f}.ckpt'.format(train_epoch_losses)
-                    #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
-                    #os.makedirs(self._model_save_dir, exist_ok=True)
-                    #self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
-
-            log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
-            if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                LOG.info(
-                    '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} '
-                    'Train miou: {:.5f} ...'.format(
-                        epoch, log_time,
-                        train_epoch_losses,
-                        train_epoch_mious,
-                    )
-                )
-            else:
-                LOG.info(
-                    '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} ...'.format(
-                        epoch, log_time,
-                        train_epoch_losses,
-                    )
-                )
-        LOG.info('Complete training process good luck!!')
+        # for epoch in range(epoch_start_pt, self._train_epoch_nums):
+        #     train_epoch_losses = []
+        #     train_epoch_mious = []
+        #     #traindataset_pbar = tqdm.tqdm(range(1, self._steps_per_epoch))
+        #     # Iterate over the batches of the dataset.
+        #     for step, batch_train in enumerate(self._batch):
+        #     #for _ in traindataset_pbar:
+        #         loss = self.train_step(batch_train[0], batch_train[1])
+        #         #if self._enable_miou and epoch % self._record_miou_epoch == 0:
+        #             #_, _, summary, train_step_loss, global_step_val = self._sess.run(
+        #             #    fetches=[
+        #             #        self._train_op, self._miou_update_op,
+        #             #        self._write_summary_op_with_miou,
+        #             #        self._loss, self._global_step
+        #             #    ]
+        #             #)
+        #
+        #             #train_step_miou = self._sess.run(
+        #             #    fetches=self._miou
+        #             #)
+        #
+        #             #train_epoch_losses.append(train_step_loss)
+        #             #train_epoch_mious.append(train_step_miou)
+        #             #self._summary_writer.add_summary(summary, global_step=global_step_val)
+        #             #traindataset_pbar.set_description(
+        #             #    'train loss: {:.5f}, miou: {:.5f}'.format(train_step_loss, train_step_miou)
+        #             #)
+        #         #else:
+        #         #    _, summary, train_step_loss, global_step_val = self._sess.run(
+        #         #        fetches=[
+        #         #            self._train_op, self._write_summary_op,
+        #         #            self._loss, self._global_step
+        #         #        ]
+        #         #    )
+        #         #    train_epoch_losses.append(train_step_loss)
+        #         #    self._summary_writer.add_summary(summary, global_step=global_step_val)
+        #         #    traindataset_pbar.set_description(
+        #         #        'train loss: {:.5f}'.format(train_step_loss)
+        #         #    )
+        #
+        #     train_epoch_losses = np.mean(train_epoch_losses)
+        #     if self._enable_miou and epoch % self._record_miou_epoch == 0:
+        #         train_epoch_mious = np.mean(train_epoch_mious)
+        #
+        #     #if epoch % self._snapshot_epoch == 0:
+        #         #if self._enable_miou:
+        #             #snapshot_model_name = 'cityscapes_train_miou={:.4f}.ckpt'.format(train_epoch_mious)
+        #             #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
+        #             #os.makedirs(self._model_save_dir, exist_ok=True)
+        #             #self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
+        #         #else:
+        #             #snapshot_model_name = 'cityscapes_train_loss={:.4f}.ckpt'.format(train_epoch_losses)
+        #             #snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
+        #             #os.makedirs(self._model_save_dir, exist_ok=True)
+        #             #self._saver.save(self._sess, snapshot_model_path, global_step=epoch)
+        #
+        #     log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        #     if self._enable_miou and epoch % self._record_miou_epoch == 0:
+        #         LOG.info(
+        #             '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} '
+        #             'Train miou: {:.5f} ...'.format(
+        #                 epoch, log_time,
+        #                 train_epoch_losses,
+        #                 train_epoch_mious,
+        #             )
+        #         )
+        #     else:
+        #         LOG.info(
+        #             '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} ...'.format(
+        #                 epoch, log_time,
+        #                 train_epoch_losses,
+        #             )
+        #         )
+        # LOG.info('Complete training process good luck!!')
 
         return
