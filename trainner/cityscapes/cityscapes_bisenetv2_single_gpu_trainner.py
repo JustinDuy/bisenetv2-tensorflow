@@ -208,17 +208,15 @@ class BiseNetV2CityScapesTrainer(object):
         warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
         return warmup_lr
 
-    def train_step(self, x, y):
+    def train_step(self, y_true, x):
         with tf.GradientTape() as tape:
-            self._model(x)
-            loss = self._model.compute_loss(y)
-            total_loss = loss['total_loss']
-            l2_loss = loss['l2_loss']
+            output_tensors = self._model(x)
+            loss = self._model.compute_loss(y_true, output_tensors)
 
-        grads = tape.gradient(total_loss, self._model.trainable_weights)
+        grads = tape.gradient(loss, self._model.trainable_weights)
         self._optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
         #train_acc_metric.update_state(y, logits)
-        return total_loss, l2_loss
+        return loss
 
     def train(self):
         """
@@ -249,29 +247,36 @@ class BiseNetV2CityScapesTrainer(object):
             epoch_start_pt = 1
 
         # Define custom loss
-        def custom_loss():
-            def loss(y_true, _):
-                return self._model.compute_loss(y_true)['l2_loss']
+        #def custom_loss():
+        #    def loss(y_pred, y_true):
+        #        return self._model.compute_loss(
+        #            label_tensor=y_true,
+        #            output_tensors=y_pred
+        #        )
 
-            # Return a function
-            return loss
+        #    # Return a function
+        #    return loss
 
         # Compile the model
-        self._model.compile(optimizer=self._optimizer_mode,
-                      loss=custom_loss(),  # Call the loss function with the selected layer
-                      metrics=['accuracy'])
+        #self._model.compile(
+        #    optimizer=self._optimizer_mode,
+        #    loss=custom_loss(),  # Call the loss function with the selected layer
+        #    metrics=[tf.keras.metrics.MeanIoU(num_classes=CFG.DATASET.NUM_CLASSES)]
+        #)
+        #self._model.build([1, 512, 1024, 3])
         #plot_model(self._model, "bisetnetKerasv2.png")
-        # train
-        self._model.fit(self._batch, epochs=self._train_epoch_nums, batch_size=self._batch_size)
 
-        # for epoch in range(epoch_start_pt, self._train_epoch_nums):
+        #self._model.fit(self._batch, epochs=self._train_epoch_nums, batch_size=self._batch_size)
+        #self._model.summary()
+
+        for epoch in range(epoch_start_pt, self._train_epoch_nums):
         #     train_epoch_losses = []
         #     train_epoch_mious = []
         #     #traindataset_pbar = tqdm.tqdm(range(1, self._steps_per_epoch))
-        #     # Iterate over the batches of the dataset.
-        #     for step, batch_train in enumerate(self._batch):
+             # Iterate over the batches of the dataset.
+             for step, batch_train in enumerate(self._batch):
         #     #for _ in traindataset_pbar:
-        #         loss = self.train_step(batch_train[0], batch_train[1])
+                 loss = self.train_step(batch_train[1], batch_train[0])
         #         #if self._enable_miou and epoch % self._record_miou_epoch == 0:
         #             #_, _, summary, train_step_loss, global_step_val = self._sess.run(
         #             #    fetches=[
