@@ -193,7 +193,7 @@ class BiseNetV2CityScapesTrainer(object):
         with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
             CFG.dump_to_json_file(f_obj)
         #self._write_summary_op = tf.summary.merge(summary_merge_list)
-        self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+        #self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
 
         LOG.info('Initialize cityscapes bisenetv2 trainner complete')
 
@@ -268,7 +268,7 @@ class BiseNetV2CityScapesTrainer(object):
                     traindataset_pbar.set_description(
                         'train loss: {:.5f}'.format(train_step_loss)
                     )
-                #traindataset_pbar.update(1)
+                traindataset_pbar.update(1)
             traindataset_pbar.close()
 
                      #_, _, summary, train_step_loss, global_step_val = self._sess.run(
