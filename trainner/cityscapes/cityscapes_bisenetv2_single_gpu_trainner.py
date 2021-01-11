@@ -193,7 +193,7 @@ class BiseNetV2CityScapesTrainer(object):
         with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
             CFG.dump_to_json_file(f_obj)
         #self._write_summary_op = tf.summary.merge(summary_merge_list)
-        #self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+        self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
 
         LOG.info('Initialize cityscapes bisenetv2 trainner complete')
 
@@ -208,14 +208,12 @@ class BiseNetV2CityScapesTrainer(object):
         warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
         return warmup_lr
 
-    def train_step(self, y_true, x):
+    def train_step(self, y_true, output_tensors):
         with tf.GradientTape() as tape:
-            output_tensors = self._model(x)
             loss = self._model.compute_loss(y_true, output_tensors)
 
         grads = tape.gradient(loss, self._model.trainable_weights)
         self._optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
-        #train_acc_metric.update_state(y, logits)
         return loss
 
     def train(self):
@@ -223,8 +221,6 @@ class BiseNetV2CityScapesTrainer(object):
 
         :return:
         """
-        #self._sess.run(tf.global_variables_initializer())
-        #self._sess.run(tf.local_variables_initializer())
         if CFG.TRAIN.RESTORE_FROM_SNAPSHOT.ENABLE:
             try:
                 LOG.info('=> Restoring weights from: {:s} ... '.format(self._initial_weight))
@@ -246,40 +242,37 @@ class BiseNetV2CityScapesTrainer(object):
             LOG.info('=> Starts to train BiseNetV2 from scratch ...')
             epoch_start_pt = 1
 
-        # Define custom loss
-        #def custom_loss():
-        #    def loss(y_pred, y_true):
-        #        return self._model.compute_loss(
-        #            label_tensor=y_true,
-        #            output_tensors=y_pred
-        #        )
-
-        #    # Return a function
-        #    return loss
-
-        # Compile the model
-        #self._model.compile(
-        #    optimizer=self._optimizer_mode,
-        #    loss=custom_loss(),  # Call the loss function with the selected layer
-        #    metrics=[tf.keras.metrics.MeanIoU(num_classes=CFG.DATASET.NUM_CLASSES)]
-        #)
-        #self._model.build([1, 512, 1024, 3])
-        #plot_model(self._model, "bisetnetKerasv2.png")
-
-        #self._model.fit(self._batch, epochs=self._train_epoch_nums, batch_size=self._batch_size)
-        #self._model.summary()
-
+        train_metric = tf.keras.metrics.MeanIoU(num_classes= CFG.DATASET.NUM_CLASSES)
         for epoch in range(epoch_start_pt, self._train_epoch_nums):
-        #     train_epoch_losses = []
-        #     train_epoch_mious = []
-        #     #traindataset_pbar = tqdm.tqdm(range(1, self._steps_per_epoch))
-             # Iterate over the batches of the dataset.
-             for step, batch_train in enumerate(self._batch):
-        #     #for _ in traindataset_pbar:
-                 loss = self.train_step(batch_train[1], batch_train[0])
-        #         #if self._enable_miou and epoch % self._record_miou_epoch == 0:
-        #             #_, _, summary, train_step_loss, global_step_val = self._sess.run(
-        #             #    fetches=[
+            train_epoch_losses = []
+            #train_epoch_mious = []
+            traindataset_pbar = tqdm.tqdm(total = self._steps_per_epoch)
+            # Iterate over the batches of the dataset.
+            for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
+                output_tensors = self._model(x_batch_train)
+                train_step_loss = self.train_step(y_batch_train, output_tensors)
+                # Update training metric.
+                train_metric.update_state(y_batch_train, output_tensors)
+
+                if self._enable_miou and epoch % self._record_miou_epoch == 0:
+                    train_epoch_losses.append(train_step_loss)
+                    #train_epoch_mious.append(train_step_miou)
+                    #self._summary_writer.add_summary(
+                    #    summary, 
+                    #    global_step= self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
+                    #)
+                    traindataset_pbar.set_description(
+                        'train loss: {:.5f}, miou: {:.5f}'.format(train_step_loss, train_metric.result().numpy())
+                    )
+                else:
+                    traindataset_pbar.set_description(
+                        'train loss: {:.5f}'.format(train_step_loss)
+                    )
+                #traindataset_pbar.update(1)
+            traindataset_pbar.close()
+
+                     #_, _, summary, train_step_loss, global_step_val = self._sess.run(
+                    #    fetches=[
         #             #        self._train_op, self._miou_update_op,
         #             #        self._write_summary_op_with_miou,
         #             #        self._loss, self._global_step
@@ -290,12 +283,7 @@ class BiseNetV2CityScapesTrainer(object):
         #             #    fetches=self._miou
         #             #)
         #
-        #             #train_epoch_losses.append(train_step_loss)
-        #             #train_epoch_mious.append(train_step_miou)
-        #             #self._summary_writer.add_summary(summary, global_step=global_step_val)
-        #             #traindataset_pbar.set_description(
-        #             #    'train loss: {:.5f}, miou: {:.5f}'.format(train_step_loss, train_step_miou)
-        #             #)
+        #             #
         #         #else:
         #         #    _, summary, train_step_loss, global_step_val = self._sess.run(
         #         #        fetches=[
