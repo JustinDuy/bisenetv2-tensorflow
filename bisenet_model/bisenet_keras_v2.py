@@ -740,24 +740,25 @@ class BiseNetKerasV2(Model):
         loss_value = tf.constant(np_array)
         for head in range(number_of_heads):
             # first check if the logits' shape is matched with the labels'
-            seg_logits_shape = seg_logits.shape[1:3]
+            seg_head = tf.slice(seg_logits, [:, :, :, 0], [:, :, :, 0])
+            seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
-            seg_logits = tf.cond(
+            seg_logit = tf.cond(
                 tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
-                true_fn=lambda: tf.dtypes.cast(seg_logits, tf.float32),
-                false_fn=lambda: tf.image.resize(seg_logits, labels_shape, method='bilinear')
+                true_fn=lambda: tf.dtypes.cast(seg_head, tf.float32),
+                false_fn=lambda: tf.image.resize(seg_head, labels_shape, method='bilinear')
             )
-            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+            seg_logit = tf.reshape(seg_logit, [-1, class_nums])
             labels = tf.reshape(labels, [-1, ])
             indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
-            seg_logits = tf.gather(seg_logits, indices)
+            seg_logit = tf.gather(seg_logit, indices)
             labels = tf.cast(tf.gather(labels, indices), tf.int32)
 
             # compute cross entropy loss
             loss_value += tf.math.reduce_mean(
                 tf.nn.sparse_softmax_cross_entropy_with_logits(
                     labels=labels,
-                    logits=seg_logits
+                    logits=seg_logit
                 ),
                 name='cross_entropy_loss'
             )
