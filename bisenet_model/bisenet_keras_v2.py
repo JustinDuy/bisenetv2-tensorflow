@@ -740,7 +740,8 @@ class BiseNetKerasV2(Model):
         loss_value = tf.constant(np_array)
         for head in range(number_of_heads):
             # first check if the logits' shape is matched with the labels'
-            seg_head = tf.slice(seg_logits, [0, 0, 0, 0], [-1, -1, -1, 0])
+            head_shape = seg_logits.shape.as_list()
+            seg_head = tf.slice(seg_logits, [0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], 0])
             K.print_tensor(seg_head)
             seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
