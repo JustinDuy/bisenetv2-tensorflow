@@ -258,7 +258,7 @@ class BiseNetV2CityScapesTrainer(object):
                 # Update training metric.
                 #K.print_tensor(y_batch_train)
                 #K.print_tensor(output_tensors)
-                #train_metric.update_state(y_batch_train, output_tensor)
+                train_metric.update_state(y_batch_train, seg_head)
 
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
                     train_epoch_losses.append(train_step_loss)
