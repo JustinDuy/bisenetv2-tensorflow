@@ -741,6 +741,7 @@ class BiseNetKerasV2(Model):
         for head in range(number_of_heads):
             # first check if the logits' shape is matched with the labels'
             seg_head = tf.slice(seg_logits, [0, 0, 0, 0], [-1, -1, -1, 0])
+            K.print_tensor(seg_head)
             seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
             seg_logit = tf.cond(
