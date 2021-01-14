@@ -251,12 +251,14 @@ class BiseNetV2CityScapesTrainer(object):
             # Iterate over the batches of the dataset.
             for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
                 output_tensors = self._model(x_batch_train)
-                output_tensor = tf.slice(output_tensors, [0, 0, 0, 0], [-1, -1, -1, 0])
+                head_shape = output_tensors.shape.as_list()
+                seg_head = tf.slice(output_tensors, [0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], 0])
+                K.print_tensor(seg_head)
                 train_step_loss = self.train_step(y_batch_train, output_tensors)
                 # Update training metric.
-                K.print_tensor(y_batch_train)
-                K.print_tensor(output_tensors)
-                train_metric.update_state(y_batch_train, output_tensor)
+                #K.print_tensor(y_batch_train)
+                #K.print_tensor(output_tensors)
+                #train_metric.update_state(y_batch_train, output_tensor)
 
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
                     train_epoch_losses.append(train_step_loss)

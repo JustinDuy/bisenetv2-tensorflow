@@ -736,13 +736,13 @@ class BiseNetKerasV2(Model):
         :return:
         """
         number_of_heads = seg_logits.shape[-1]
-        np_array = [0.0 for i in range(labels.shape[0])] # define init loss for whole batch
+        np_array = [0.0 for _ in range(labels.shape[0])] # define init loss for whole batch
         loss_value = tf.constant(np_array)
         for head in range(number_of_heads):
             # first check if the logits' shape is matched with the labels'
             head_shape = seg_logits.shape.as_list()
             seg_head = tf.slice(seg_logits, [0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], 0])
-            K.print_tensor(seg_head)
+            print("Head "  + head + " " + seg_head.shape + " " )
             seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
             seg_logit = tf.cond(
