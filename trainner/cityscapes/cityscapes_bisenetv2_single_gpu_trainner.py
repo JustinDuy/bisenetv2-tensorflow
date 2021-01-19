@@ -261,7 +261,7 @@ class BiseNetV2CityScapesTrainer(object):
             traindataset_pbar = tqdm.tqdm(total = self._steps_per_epoch)
             # Iterate over the batches of the dataset.
             for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
-                output_tensors = self._model(x_batch_train)
+                output_tensors = self._model(x_batch_train, training=True)
                 train_step_loss = self.train_step(y_batch_train, output_tensors, train_metric)
 
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
