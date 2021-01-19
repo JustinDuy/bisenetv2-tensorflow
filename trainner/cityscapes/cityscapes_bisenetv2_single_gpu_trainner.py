@@ -255,9 +255,9 @@ class BiseNetV2CityScapesTrainer(object):
                 seg_head = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])
                 train_step_loss = self.train_step(y_batch_train, output_tensors)
                 # Update training metric.
-                #K.print_tensor(y_batch_train)
-                #K.print_tensor(output_tensors)
-                #train_metric.update_state(y_batch_train, seg_head)
+                K.print_tensor(y_batch_train)
+                K.print_tensor(seg_head)
+                train_metric.update_state(y_batch_train, seg_head)
 
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
                     train_epoch_losses.append(train_step_loss)
@@ -267,7 +267,7 @@ class BiseNetV2CityScapesTrainer(object):
                     #    global_step= self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
                     #)
                     traindataset_pbar.set_description(
-                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), 0.0) #train_metric.result().numpy())
+                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_metric.result().numpy())) 
                     )
                 else:
                     traindataset_pbar.set_description(
