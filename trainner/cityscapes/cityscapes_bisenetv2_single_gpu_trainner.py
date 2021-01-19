@@ -226,15 +226,6 @@ class BiseNetV2CityScapesTrainer(object):
         self._optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
         return loss
 
-    def miou(self):
-        
-       
-        = tf.metrics.mean_iou(
-        #        labels=gt,
-        #        predictions=pred,
-        #        num_classes=CFG.DATASET.NUM_CLASSES
-        #    )
-
     def train(self):
         """
 
