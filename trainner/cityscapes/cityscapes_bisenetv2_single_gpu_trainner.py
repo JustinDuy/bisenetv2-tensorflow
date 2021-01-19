@@ -213,7 +213,8 @@ class BiseNetV2CityScapesTrainer(object):
         with tf.GradientTape() as tape:
             loss = self._model.compute_loss(y_true, output_tensors)
             head_shape = output_tensors.shape.as_list()
-            segment_logits = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])      
+            #segment_logits = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])      
+            segment_logits = tf.squeeze(segment_logits, axis=-1)
             segment_score = tf.nn.softmax(logits=segment_logits, name='prob')
             predict = tf.argmax(segment_score, axis=3, name='prediction')
             pred = tf.reshape(predict, [-1, ])
