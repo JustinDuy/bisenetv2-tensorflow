@@ -856,7 +856,7 @@ class BiseNetKerasV2(Model):
             feature_dims=self._seg_head_ratio * detail_output_channels,
             classes_nums=self._class_nums)
 
-    def call(self, input_tensor):
+    def call(self, input_tensor, training=None):
         """
 
         :param input_tensor:
@@ -877,7 +877,7 @@ class BiseNetKerasV2(Model):
             aggregation_branch_output
         )
         semantic_branch_seg_logits['seg_head'] = segment_logits
-        if self._phase == "train":
+        if training:
             if 1 == len(semantic_branch_seg_logits): # no boosting used
                 output_tensors = tf.expand_dims(segment_logits, -1)
             else:
@@ -977,11 +977,10 @@ if __name__ == '__main__':
     bisenetv2_aggregation_output = _GuidedAggregation(phase="train")(
         [bisenetv2_detail_branch_output, bisenetv2_semantic_branch_output]
     )
-    output_tensors = bisenetv2(test_input)
+    output_tensors = bisenetv2(test_input, training=True)
     loss_set = bisenetv2.compute_loss(
         label_tensor=test_label,
         output_tensors=output_tensors)
-    bisenetv2._phase="predict"
     logits = bisenetv2(test_input)
 
     #with tf.Session() as sess:

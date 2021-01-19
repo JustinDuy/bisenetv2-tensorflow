@@ -209,13 +209,31 @@ class BiseNetV2CityScapesTrainer(object):
         warmup_lr = self._warmup_init_learning_rate * tf.math.pow(factor, self._global_step)
         return warmup_lr
 
-    def train_step(self, y_true, output_tensors):
+    def train_step(self, y_true, output_tensors, train_metric):
         with tf.GradientTape() as tape:
             loss = self._model.compute_loss(y_true, output_tensors)
+            head_shape = output_tensors.shape.as_list()
+            segment_logits = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])      
+            segment_score = tf.nn.softmax(logits=segment_logits, name='prob')
+            segment_prediction = tf.argmax(segment_score, axis=-1, name='prediction')
+            #indices = tf.squeeze(tf.where(tf.less_equal(y_true, CFG.DATASET.NUM_CLASSES - 1)), 1)
+            #gt = tf.gather(gt, indices)
+            #pred = tf.gather(pred, indices)
+            # Update training metric.
+            train_metric.update_state(y_batch_train, segment_prediction)
 
         grads = tape.gradient(loss, self._model.trainable_weights)
         self._optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
         return loss
+
+    def miou(self):
+        
+       
+        = tf.metrics.mean_iou(
+        #        labels=gt,
+        #        predictions=pred,
+        #        num_classes=CFG.DATASET.NUM_CLASSES
+        #    )
 
     def train(self):
         """
@@ -251,13 +269,7 @@ class BiseNetV2CityScapesTrainer(object):
             # Iterate over the batches of the dataset.
             for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
                 output_tensors = self._model(x_batch_train)
-                head_shape = output_tensors.shape.as_list()
-                seg_head = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])
-                train_step_loss = self.train_step(y_batch_train, output_tensors)
-                # Update training metric.
-                K.print_tensor(y_batch_train)
-                K.print_tensor(seg_head)
-                train_metric.update_state(y_batch_train, seg_head)
+                train_step_loss = self.train_step(y_batch_train, output_tensors, train_metric)
 
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
                     train_epoch_losses.append(train_step_loss)
