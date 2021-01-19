@@ -220,7 +220,7 @@ class BiseNetV2CityScapesTrainer(object):
             #gt = tf.gather(gt, indices)
             #pred = tf.gather(pred, indices)
             # Update training metric.
-            train_metric.update_state(y_batch_train, segment_prediction)
+            train_metric.update_state(y_true, segment_prediction)
 
         grads = tape.gradient(loss, self._model.trainable_weights)
         self._optimizer.apply_gradients(zip(grads, self._model.trainable_weights))
