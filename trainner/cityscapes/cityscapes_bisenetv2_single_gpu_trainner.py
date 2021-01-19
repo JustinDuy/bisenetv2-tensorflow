@@ -267,7 +267,7 @@ class BiseNetV2CityScapesTrainer(object):
                     #    global_step= self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
                     #)
                     traindataset_pbar.set_description(
-                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_metric.result().numpy())) 
+                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_metric.result().numpy())
                     )
                 else:
                     traindataset_pbar.set_description(
