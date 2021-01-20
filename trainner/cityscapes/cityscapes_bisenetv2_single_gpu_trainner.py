@@ -78,6 +78,23 @@ class BiseNetV2CityScapesTrainer(object):
         #sess_config.gpu_options.allocator_type = 'BFC'
         #self._sess = tf.Session(config=sess_config)
 
+        gpu_options = tf.GPUOptions(
+            per_process_gpu_memory_fraction=CFG.GPU.GPU_MEMORY_FRACTION,
+            allow_growth=CFG.GPU.TF_ALLOW_GROWTH,
+            allocator_type='BFC'
+        )
+
+        sess_config = tf.ConfigProto(
+            intra_op_parallelism_threads=2,
+            inter_op_parallelism_threads=4,
+            allow_soft_placement=True,
+            device_count={'CPU': 1},
+            gpu_options=gpu_options
+        )
+
+        self._sess = tf.Session(config=sess_config)
+        K.set_session(self._sess)
+
         # define graph input tensor
         self._batch = self._train_dataset.get_batch(
             batch_size=self._batch_size
@@ -178,23 +195,15 @@ class BiseNetV2CityScapesTrainer(object):
         #    tf.summary.scalar("total", self._loss),
         #    tf.summary.scalar('l2_loss', self._l2_loss)
         #]
-        #if self._enable_miou:
-        #    with tf.control_dependencies([self._miou_update_op]):
-        #        summary_merge_list_with_miou = [
-        #            tf.summary.scalar("learn_rate", self._learn_rate),
-        #            tf.summary.scalar("total", self._loss),
-        #            tf.summary.scalar('l2_loss', self._l2_loss),
-        #            tf.summary.scalar('miou', self._miou)
-        #        ]
-        #        self._write_summary_op_with_miou = tf.summary.merge(summary_merge_list_with_miou)
         if ops.exists(self._tboard_save_dir):
             shutil.rmtree(self._tboard_save_dir)
         os.makedirs(self._tboard_save_dir, exist_ok=True)
         model_params_file_save_path = ops.join(self._tboard_save_dir, CFG.TRAIN.MODEL_PARAMS_CONFIG_FILE_NAME)
         with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
             CFG.dump_to_json_file(f_obj)
-        #self._write_summary_op = tf.summary.merge(summary_merge_list)
-        #self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+
+        self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
+        #self._summary_writer = tf.summary.create_file_writer(self._tboard_save_dir)
 
         LOG.info('Initialize cityscapes bisenetv2 trainner complete')
 
@@ -212,8 +221,6 @@ class BiseNetV2CityScapesTrainer(object):
     def train_step(self, y_true, output_tensors, train_metric):
         with tf.GradientTape() as tape:
             loss = self._model.compute_loss(y_true, output_tensors)
-            head_shape = output_tensors.shape.as_list()
-            #segment_logits = tf.slice(output_tensors, [0, 0, 0, 0, 0], [head_shape[0], head_shape[1], head_shape[2], head_shape[3], 0])      
             segment_logits = tf.squeeze(output_tensors, axis=-1)
             segment_score = tf.nn.softmax(logits=segment_logits, name='prob')
             predict = tf.argmax(segment_score, axis=3, name='prediction')
@@ -258,22 +265,26 @@ class BiseNetV2CityScapesTrainer(object):
         train_metric = tf.keras.metrics.MeanIoU(num_classes= CFG.DATASET.NUM_CLASSES)
         for epoch in range(epoch_start_pt, self._train_epoch_nums):
             train_epoch_losses = []
-            #train_epoch_mious = []
+            train_epoch_mious = []
             traindataset_pbar = tqdm.tqdm(total = self._steps_per_epoch)
             # Iterate over the batches of the dataset.
             for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
                 output_tensors = self._model(x_batch_train, training=True)
                 train_step_loss = self.train_step(y_batch_train, output_tensors, train_metric)
-
+                train_step_miou = train_metric.result().numpy()
                 if self._enable_miou and epoch % self._record_miou_epoch == 0:
                     train_epoch_losses.append(train_step_loss)
-                    #train_epoch_mious.append(train_step_miou)
-                    #self._summary_writer.add_summary(
-                    #    summary, 
-                    #    global_step= self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
-                    #)
+                    train_epoch_mious.append(train_step_miou)
+                    with self._summary_writer.as_default():
+                        tf.summary.scalar(
+                            "miou", 
+                            train_step_miou, 
+                            step=self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
+                        )
+                        self._summary_writer.flush()
+
                     traindataset_pbar.set_description(
-                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_metric.result().numpy())
+                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_step_miou)
                     )
                 else:
                     traindataset_pbar.set_description(
