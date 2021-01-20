@@ -78,19 +78,21 @@ class BiseNetV2CityScapesTrainer(object):
         #sess_config.gpu_options.allocator_type = 'BFC'
         #self._sess = tf.Session(config=sess_config)
 
-        gpu_options = tf.GPUOptions(
-            per_process_gpu_memory_fraction=CFG.GPU.GPU_MEMORY_FRACTION,
-            allow_growth=CFG.GPU.TF_ALLOW_GROWTH,
-            allocator_type='BFC'
-        )
+        #gpu_options = tf.GPUOptions(
+        #    per_process_gpu_memory_fraction=CFG.GPU.GPU_MEMORY_FRACTION,
+        #    allow_growth=CFG.GPU.TF_ALLOW_GROWTH,
+        #    allocator_type='BFC'
+        #)
 
         sess_config = tf.ConfigProto(
             intra_op_parallelism_threads=2,
             inter_op_parallelism_threads=4,
             allow_soft_placement=True,
-            device_count={'CPU': 1},
-            gpu_options=gpu_options
+            device_count={'CPU': 1}
         )
+        sess_config.gpu_options.allow_growth = CFG.GPU.TF_ALLOW_GROWTH
+        sess_config.gpu_options.per_process_gpu_memory_fraction = CFG.GPU.GPU_MEMORY_FRACTION
+        sess_config.gpu_options.allocator_type = 'BFC'
 
         self._sess = tf.Session(config=sess_config)
         K.set_session(self._sess)
