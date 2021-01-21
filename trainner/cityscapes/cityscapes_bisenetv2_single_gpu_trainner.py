@@ -83,24 +83,28 @@ class BiseNetV2CityScapesTrainer(object):
         #    allow_growth=CFG.GPU.TF_ALLOW_GROWTH,
         #    allocator_type='BFC'
         #)
-
-        sess_config = tf.ConfigProto(
-            intra_op_parallelism_threads=2,
-            inter_op_parallelism_threads=4,
-            allow_soft_placement=True,
-            device_count={'CPU': 1}
-        )
-        sess_config.gpu_options.allow_growth = CFG.GPU.TF_ALLOW_GROWTH
-        sess_config.gpu_options.per_process_gpu_memory_fraction = CFG.GPU.GPU_MEMORY_FRACTION
-        sess_config.gpu_options.allocator_type = 'BFC'
-
-        self._sess = tf.Session(config=sess_config)
-        K.set_session(self._sess)
-
-        # define graph input tensor
-        self._batch = self._train_dataset.get_batch(
-            batch_size=self._batch_size
-        )
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            try:
+                # Currently, memory growth needs to be the same across GPUs
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, CFG.GPU.TF_ALLOW_GROWTH)
+                    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+                    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+            except RuntimeError as e:
+                # Memory growth must be set before GPUs have been initialized
+                print(e)
+            try:
+                tf.config.experimental.set_virtual_device_configuration(
+                    gpus[0],
+                    [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)]
+                )
+            except RuntimeError as e:
+                print(e)
+                    # define graph input tensor
+                    self._batch = self._train_dataset.get_batch(
+                        batch_size=self._batch_size
+                    )
 
         # define model loss
         self._model = bisenet_keras_v2.BiseNetKerasV2(phase='train', cfg=CFG)
@@ -263,7 +267,7 @@ class BiseNetV2CityScapesTrainer(object):
         else:
             LOG.info('=> Starts to train BiseNetV2 from scratch ...')
             epoch_start_pt = 1
-
+        #tf.config.experimental_run_functions_eagerly(True)
         train_metric = tf.keras.metrics.MeanIoU(num_classes= CFG.DATASET.NUM_CLASSES)
         for epoch in range(epoch_start_pt, self._train_epoch_nums):
             train_epoch_losses = []
