@@ -739,10 +739,9 @@ class BiseNetKerasV2(Model):
         np_array = [0.0 for _ in range(labels.shape[0])] # define init loss for whole batch
         loss_value = tf.constant(np_array)
         for head in range(number_of_heads):
-            # first check if the logits' shape is matched with the labels'
-            head_shape = seg_logits.shape.as_list()
             seg_head = tf.squeeze(seg_logits, axis=-1)
             print("Head "  + head + " " + seg_head.shape + " " )
+            # first check if the logits' shape is matched with the labels'
             seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
             seg_logit = tf.cond(
@@ -764,7 +763,6 @@ class BiseNetKerasV2(Model):
                 ),
                 name='cross_entropy_loss'
             )
-        #K.print_tensor(loss_value)
         return loss_value
 
     @classmethod
@@ -780,24 +778,25 @@ class BiseNetKerasV2(Model):
         np_array = [0.0 for i in range(labels.shape[0])]  # define init loss for whole batch
         loss_value = tf.constant(np_array)
         for head in range(number_of_heads):
+            seg_head = tf.squeeze(seg_logits, axis=-1)
             # first check if the logits' shape is matched with the labels'
-            seg_logits_shape = seg_logits.shape[1:3]
+            seg_logits_shape = seg_head.shape[1:3]
             labels_shape = labels.shape[1:3]
-            seg_logits = tf.cond(
+            seg_logit = tf.cond(
                 tf.reduce_all(tf.equal(seg_logits_shape, labels_shape)),
-                true_fn=lambda: tf.dtypes.cast(seg_logits, tf.float32),
-                false_fn=lambda: tf.image.resize(seg_logits, labels_shape, method='bilinear')
+                true_fn=lambda: tf.dtypes.cast(seg_head, tf.float32),
+                false_fn=lambda: tf.image.resize(seg_head, labels_shape, method='bilinear')
             )
-            seg_logits = tf.reshape(seg_logits, [-1, class_nums])
+            seg_logit = tf.reshape(seg_logit, [-1, class_nums])
             labels = tf.reshape(labels, [-1, ])
             indices = tf.squeeze(tf.where(tf.less_equal(labels, class_nums - 1)), 1)
-            seg_logits = tf.gather(seg_logits, indices)
+            seg_logit = tf.gather(seg_logit, indices)
             labels = tf.cast(tf.gather(labels, indices), tf.int32)
 
             # compute cross entropy loss
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
                 labels=labels,
-                logits=seg_logits
+                logits=seg_logit
             )
             loss, _ = tf.nn.top_k(loss, tf.size(loss), sorted=True)
 
@@ -810,7 +809,6 @@ class BiseNetKerasV2(Model):
                 false_fn=lambda: loss[:n_min]
             )
             loss_value += tf.math.reduce_mean(loss_select, name='ohem_cross_entropy_loss')
-        #K.print_tensor(loss_value)
         return loss_value
 
     @classmethod
@@ -831,7 +829,6 @@ class BiseNetKerasV2(Model):
                 l2_reg_loss += tf.nn.l2_loss(vv)
         l2_reg_loss *= weights_decay
         l2_reg_loss = tf.identity(l2_reg_loss, 'l2_loss')
-        #K.print_tensor(l2_reg_loss)
         return l2_reg_loss
 
     def build(self, input_shape):
