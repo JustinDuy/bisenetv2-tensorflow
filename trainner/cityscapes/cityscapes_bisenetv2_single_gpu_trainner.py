@@ -209,9 +209,10 @@ class BiseNetV2CityScapesTrainer(object):
         with open(model_params_file_save_path, 'w', encoding='utf-8') as f_obj:
             CFG.dump_to_json_file(f_obj)
 
-        self._summary_writer = tf.summary.FileWriter(self._tboard_save_dir, graph=self._sess.graph)
-        #self._summary_writer = tf.summary.create_file_writer(self._tboard_save_dir)
-
+        self._summary_writer = tf.summary.create_file_writer(self._tboard_save_dir)
+        tb_callback = tf.keras.callbacks.TensorBoard(self._tboard_save_dir)
+        tb_callback.set_model(self._model) # Writes the graph to tensorboard summaries using an internal file writer
+ 
         LOG.info('Initialize cityscapes bisenetv2 trainner complete')
 
     def _compute_warmup_lr(self, warmup_steps, name):
@@ -270,19 +271,19 @@ class BiseNetV2CityScapesTrainer(object):
             epoch_start_pt = 1
         #tf.config.experimental_run_functions_eagerly(True)
         train_metric = tf.keras.metrics.MeanIoU(num_classes= CFG.DATASET.NUM_CLASSES)
-        for epoch in range(epoch_start_pt, self._train_epoch_nums):
-            train_epoch_losses = []
-            train_epoch_mious = []
-            traindataset_pbar = tqdm.tqdm(total = self._steps_per_epoch)
-            # Iterate over the batches of the dataset.
-            for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
-                output_tensors = self._model(x_batch_train, training=True)
-                train_step_loss = self.train_step(y_batch_train, output_tensors, train_metric)
-                train_step_miou = train_metric.result().numpy()
-                if self._enable_miou and epoch % self._record_miou_epoch == 0:
-                    train_epoch_losses.append(train_step_loss)
-                    train_epoch_mious.append(train_step_miou)
-                    with self._summary_writer.as_default():
+        with self._summary_writer.as_default():
+            for epoch in range(epoch_start_pt, self._train_epoch_nums):
+                train_epoch_losses = []
+                train_epoch_mious = []
+                traindataset_pbar = tqdm.tqdm(total = self._steps_per_epoch)
+                # Iterate over the batches of the dataset.
+                for step,  (x_batch_train, y_batch_train) in enumerate(self._batch):
+                    output_tensors = self._model(x_batch_train, training=True)
+                    train_step_loss = self.train_step(y_batch_train, output_tensors, train_metric)
+                    train_step_miou = train_metric.result().numpy()
+                    if self._enable_miou and epoch % self._record_miou_epoch == 0:
+                        train_epoch_losses.append(train_step_loss)
+                        train_epoch_mious.append(train_step_miou)
                         tf.summary.scalar(
                             "miou", 
                             train_step_miou, 
@@ -290,17 +291,19 @@ class BiseNetV2CityScapesTrainer(object):
                         )
                         self._summary_writer.flush()
 
-                    traindataset_pbar.set_description(
-                        'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_step_miou)
-                    )
-                else:
-                    traindataset_pbar.set_description(
-                        'train loss: {:.5f}'.format(train_step_loss)
-                    )
-                traindataset_pbar.update(1)
-            traindataset_pbar.close()
-
-                     #_, _, summary, train_step_loss, global_step_val = self._sess.run(
+                        traindataset_pbar.set_description(
+                            'train loss: {:.5f}, miou: {:.5f}'.format(np.sum(train_step_loss), train_step_miou)
+                        )
+                    else:
+                        traindataset_pbar.set_description(
+                            'train loss: {:.5f}'.format(train_step_loss)
+                        )
+                    traindataset_pbar.update(1)
+                traindataset_pbar.close()
+                train_metric.reset_states()
+        
+        self._summary_writer.close()
+                        #_, _, summary, train_step_loss, global_step_val = self._sess.run(
                     #    fetches=[
         #             #        self._train_op, self._miou_update_op,
         #             #        self._write_summary_op_with_miou,
