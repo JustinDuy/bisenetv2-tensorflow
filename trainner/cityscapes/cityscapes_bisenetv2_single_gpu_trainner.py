@@ -96,15 +96,16 @@ class BiseNetV2CityScapesTrainer(object):
                 print(e)
             try:
                 tf.config.experimental.set_virtual_device_configuration(
-                    gpus[0],
+                    gpus[0], 
                     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=1024)]
                 )
             except RuntimeError as e:
                 print(e)
-                    # define graph input tensor
-                    self._batch = self._train_dataset.get_batch(
-                        batch_size=self._batch_size
-                    )
+
+        # define graph input tensor
+        self._batch = self._train_dataset.get_batch(
+            batch_size=self._batch_size
+        )
 
         # define model loss
         self._model = bisenet_keras_v2.BiseNetKerasV2(phase='train', cfg=CFG)
