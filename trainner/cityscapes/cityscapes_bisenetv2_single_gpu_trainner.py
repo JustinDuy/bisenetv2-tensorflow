@@ -287,7 +287,7 @@ class BiseNetV2CityScapesTrainer(object):
                         tf.summary.scalar(
                             "miou", 
                             train_step_miou, 
-                            step=self._steps_per_epoch * (epoch - epoch_start_pt +1) + step + 1
+                            step=step
                         )
                         self._summary_writer.flush()
 
@@ -301,7 +301,40 @@ class BiseNetV2CityScapesTrainer(object):
                     traindataset_pbar.update(1)
                 traindataset_pbar.close()
                 train_metric.reset_states()
+                train_epoch_losses = np.mean(train_epoch_losses)
+                if self._enable_miou and epoch % self._record_miou_epoch == 0:
+                    train_epoch_mious = np.mean(train_epoch_mious)
+
+                if epoch % self._snapshot_epoch == 0:
+                    if self._enable_miou:
+                        snapshot_model_name = 'cityscapes_train_miou={:.4f}.ckpt'.format(train_epoch_mious)
+                        snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
+                        os.makedirs(self._model_save_dir, exist_ok=True)
+                        self._model.save(snapshot_model_path, global_step=epoch)
+                    else:
+                        snapshot_model_name = 'cityscapes_train_loss={:.4f}.ckpt'.format(train_epoch_losses)
+                        snapshot_model_path = ops.join(self._model_save_dir, snapshot_model_name)
+                        os.makedirs(self._model_save_dir, exist_ok=True)
+                        self._model.save(snapshot_model_path, global_step=epoch)
         
+        #     log_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
+        #     if self._enable_miou and epoch % self._record_miou_epoch == 0:
+        #         LOG.info(
+        #             '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} '
+        #             'Train miou: {:.5f} ...'.format(
+        #                 epoch, log_time,
+        #                 train_epoch_losses,
+        #                 train_epoch_mious,
+        #             )
+        #         )
+        #     else:
+        #         LOG.info(
+        #             '=> Epoch: {:d} Time: {:s} Train loss: {:.5f} ...'.format(
+        #                 epoch, log_time,
+        #                 train_epoch_losses,
+        #             )
+        #         )
+        # LOG.info('Complete training process good luck!!')
         self._summary_writer.close()
                         #_, _, summary, train_step_loss, global_step_val = self._sess.run(
                     #    fetches=[
