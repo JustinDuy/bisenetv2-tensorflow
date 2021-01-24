@@ -46,13 +46,13 @@ MODEL:
 TEST:
     TEST_MODEL: 'model/cityscapes/final'
 TRAIN:
-    MODEL_SAVE_DIR: 'model/'
-    TBOARD_SAVE_DIR: 'tboard/'
+    MODEL_SAVE_DIR: '/content/gdrive/MyDrive/model/'
+    TBOARD_SAVE_DIR: '/content/gdrive/MyDrive/tboard/'
     MODEL_PARAMS_CONFIG_FILE_NAME: "model_train_config.json"
     RESTORE_FROM_SNAPSHOT:
         ENABLE: False
         SNAPSHOT_PATH: ''
-    SNAPSHOT_EPOCH: 1
+    SNAPSHOT_EPOCH: 2
     BATCH_SIZE: 32
     VAL_BATCH_SIZE: 4
     EPOCH_NUMS: 905
