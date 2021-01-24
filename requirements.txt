@@ -1,5 +1,4 @@
 six
-tensorflow_gpu
 keras
 tensorrt
 pycuda
